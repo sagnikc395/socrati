@@ -9,7 +9,7 @@
     "build": "next build",
     "start": "next start",
     "worker": "tsx lib/worker.ts",
-    "lint": "eslint --max-warnings 0",
+    "lint": "eslint --quiet",
     "check-types": "next typegen && tsc --noEmit"
   },
   "dependencies": {

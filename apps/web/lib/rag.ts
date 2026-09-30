@@ -67,8 +67,11 @@ export async function retrieveContext(
     }
 
     // 3. Format the returned chunks into a readable string for the LLM
-    // Filter by similarity threshold to avoid irrelevant 'noise'
-    const THRESHOLD = 0.7;
+    // Filter by similarity threshold to avoid irrelevant 'noise'.
+    // gemini-embedding-001 cosine similarities for related query/chunk pairs
+    // typically land between 0.5 and 0.75, while unrelated pairs stay well
+    // under 0.4 — so 0.5 filters noise without discarding relevant context.
+    const THRESHOLD = 0.5;
     const relevantChunks = chunks.filter((chunk: any) => chunk.similarity >= THRESHOLD);
 
     if (relevantChunks.length === 0) {

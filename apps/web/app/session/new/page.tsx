@@ -70,7 +70,6 @@ export default function NewSessionPage() {
             };
         },
         // updateDoc is stable (functional setDocs updater) — no re-subscription needed
-        // eslint-disable-next-line react-hooks/exhaustive-deps
         [],
     );
 
@@ -179,7 +178,11 @@ export default function NewSessionPage() {
         if (doc?.status !== 'ready') return;
         setSelected(prev => {
             const next = new Set(prev);
-            next.has(id) ? next.delete(id) : next.add(id);
+            if (next.has(id)) {
+                next.delete(id);
+            } else {
+                next.add(id);
+            }
             return next;
         });
     };
