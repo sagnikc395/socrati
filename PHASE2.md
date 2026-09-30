@@ -1,93 +1,181 @@
-Yes, extending Socrati makes more sense than starting over. It is already a full product:
+# Phase 2 — DX Hardening
 
-- A TypeScript monorepo with a Next.js web app.
-- Supabase for authentication, row-level security, and vector search.
-- A BullMQ worker on Redis that parses, chunks, and embeds uploaded documents in the background.
-- Retrieval-grounded chat that falls back to web search when the documents lack enough context.
-- Quiz and mind map generation, a test suite, and CI workflows.
-- A live deployment on Vercel.
+Goal: make Socrati easy to run, change, and debug. No new services, no new
+infrastructure. Every change must work with the current setup: `npm run dev`
+(Next.js + BullMQ worker), Supabase (Postgres + pgvector), Upstash Redis,
+Vercel deploy.
 
-That covers most of the "complete application" list from my earlier message. Voice mode and observability are both reasonable additions, but each needs adjustments. There are also a few things to fix first.
+## Non-goals
 
-## ORM : Drizzle ORM 
-Instead of using raw sql, better to migrate to a ORM like Drizzle to make it easier and good transitions.
+- No voice mode in Phase 2 (moved to Phase 3 stretch, see bottom).
+- No Prometheus / OpenTelemetry Collector / Grafana stack.
+- No Go/Python gateway, no WebSockets, no realtime speech-to-speech.
+- No new databases, queues, or analytics pipelines.
 
-## Observability: good idea, but Prometheus doesn't fit your deployment as is
+Principle: if it doesn't run on `npm install && npx supabase db push && npm run dev`,
+it doesn't ship in Phase 2.
 
-**Web app (Next.js on Vercel).** Instrument it with OpenTelemetry through Next.js's `instrumentation.ts` hook. Push traces and metrics over OTLP to an OpenTelemetry Collector, or directly to a managed Grafana stack.
+## Why this scope
 
-**Worker.** Wherever your BullMQ worker runs, it is a long-running process, so it can expose `/metrics` with `prom-client` for Prometheus to scrape. Track:
-- Queue depth.
-- Job duration.
-- Job failure and retry counts.
+Current pain points:
 
-**Per-user data goes in Postgres, not Prometheus.** Using `user_id` as a Prometheus label creates a separate time series for every user, which is a known way to overload Prometheus. Instead, write one row per LLM call to a table:
+1. 11 raw-SQL migrations in `supabase/migrations/` + raw queries in
+   `apps/web/lib/repository.ts`. No types, fear of editing schema.
+2. Debugging chat/ingestion means grepping Vercel + worker logs. No per-request
+   timing, no cost/usage numbers.
+3. Single LLM provider (Groq), no rate limits, re-embeds identical files,
+   no regression test for the core promise (ask questions, don't give answers).
 
-```sql
-llm_usage(id, user_id, session_id, feature, provider, model,
-          input_tokens, output_tokens, cost_usd, ttft_ms,
-          total_ms, cache_hit, fallback_used, created_at)
+Phase 2 fixes exactly these three, nothing else.
+
+---
+
+## 1. Type-safe data layer (Drizzle)
+
+**Problem:** raw SQL everywhere, schema drift risk.
+
+**Approach:** add Drizzle as a typed wrapper, don't rewrite history.
+
+- Add `drizzle-orm` + `drizzle-kit` (postgres-js driver via Supabase pooler).
+- Add `apps/web/lib/db/schema.ts` matching the current DB state (baseline from
+  migrations `0001`–`0011`). Old migrations stay untouched.
+- Replace queries in `apps/web/lib/repository.ts` incrementally, one table at
+  a time (documents → chunks → sessions → messages → quiz).
+- Keep `match_document_chunks` as raw SQL (pgvector RPC). Wrap it in a typed
+  Drizzle helper, don't reimplement it.
+- Env access stays through `lib/load-env.ts`. One new var max: `DATABASE_URL`
+  (pooled connection string).
+
+New scripts:
+
+```bash
+npm run db:generate  # drizzle-kit generate from schema.ts
+npm run db:push      # drizzle-kit push (local dev only)
+npm run db:studio    # drizzle-studio for inspection
 ```
 
-Store product events such as session started, quiz completed, and document uploaded in a separate events table. Grafana can query Postgres directly, so one dashboard can show operational metrics next to usage, cost per user, weekly active users, and retention.
+**Done when:**
 
-**Metrics worth having:**
-- **API routes:** request rate, error rate, and latency histograms.
-- **LLM calls:** time to first token, tokens per second, tokens in and out, provider error rate, and fallback count.
-- **Retrieval:** chunks returned, similarity scores, and how often the web search fallback triggers (a proxy for how well your retrieval covers student questions).
-- **Ingestion:** time from upload to "ready," and parse failure rate by file type.
+- [ ] `npm run check-types` covers all DB rows (no `any` for documents/chunks/sessions).
+- [ ] New schema change = edit `schema.ts` + generated migration, no hand-written ALTER.
+- [ ] `npm test` still passes with `EMBEDDING_MOCK=true`.
 
-**Traces.** Make each chat turn one trace, with a span for each stage: auth, the vector search call, web search fallback, the LLM call, and saving the message. This tells you where latency actually goes, which is what makes a before/after optimization claim credible.
+## 2. Lightweight observability (Postgres + logs)
 
-**Alerts.** Define two or three service-level objectives, for example "p95 chat time to first token under 1.5 seconds" and "ingestion success rate above 98%," with alerts on each.
+**Problem:** the old plan needed OTel Collector + `prom-client` `/metrics` +
+Grafana. None of that fits Vercel serverless, and it's three new things to run
+locally.
 
-## Voice mode: worth building if it serves the tutoring
+**Approach:** structured logs + one Postgres table. Query via Supabase
+dashboard. Zero new infra.
 
-Socratic dialogue works naturally as speech, and "explain the concept back to me out loud" is a real study technique, so voice fits this product. Build it around that use case rather than as a generic microphone button.
+Add one table:
 
-**Architecture options:**
-- **Cascaded pipeline (recommended):** speech-to-text, then your existing retrieval and Socratic prompt, then text-to-speech. It reuses your grounding logic, and you can measure and swap each stage separately.
-- **Speech-to-speech realtime model:** lower latency and more natural turn-taking, but harder to ground in retrieved documents, harder to evaluate, and usually more expensive per minute.
-- **Browser Web Speech API:** fine for a quick prototype, but browser support is inconsistent, so don't ship it as the final version.
+```sql
+-- supabase/migrations/0012_llm_usage.sql
+create table llm_usage (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references profiles(id),
+  session_id uuid references sessions(id),
+  feature text not null,          -- chat | quiz | mindmap
+  provider text not null,         -- groq | fallback
+  model text not null,
+  input_tokens int, output_tokens int, cost_usd numeric,
+  ttft_ms int, total_ms int,
+  cache_hit boolean default false,
+  fallback_used boolean default false,
+  created_at timestamptz default now()
+);
+```
 
-**Transport.** Vercel's serverless functions are not designed for long-lived WebSocket connections. You have two options:
-- Run a small voice gateway service on a host that supports persistent connections. This is a good place to use Go or Python, which also shows backend range.
-- Have your backend issue short-lived tokens so the browser connects directly to the speech provider.
+No `user_id` labels in metrics systems — per-user data lives here, one row per
+LLM call.
 
-**The hard parts, which are also what make it impressive:**
-- Detecting when the student has finished speaking.
-- Letting the student interrupt while the tutor is talking.
-- Converting the LLM's output to speech sentence by sentence as tokens arrive, instead of waiting for the full reply.
-- Keeping latency within a budget.
+Extend existing `apps/web/lib/logger.ts` (don't add an OTel SDK):
 
-**Headline metric.** Measure the time from the end of the student's speech to the first audio byte of the reply, at p50 and p95, broken down by stage. Record cost per voice minute in the `llm_usage` table.
+- Include `requestId` (API routes) / `jobId` (worker) on every log line.
+- One log line per chat turn with timings as fields:
+  `auth_ms, retrieval_ms, web_fallback, llm_ttft_ms, total_ms`.
+- Same for ingestion: `upload_to_ready_ms, parse_ms, embed_ms, file_type`.
 
-**Scope.** Version 1 is push-to-talk with no interruption support. Version 2 adds automatic end-of-speech detection and interruption.
+Four queries replace the dashboard:
 
-## Gaps these two features don't cover
+1. p95 chat TTFT (`llm_usage` where `feature = 'chat'`).
+2. Upload → ready latency + parse failure rate by file type (worker logs).
+3. Fallback usage rate (`fallback_used = true`).
+4. API error rate (route logs).
 
-**Provider fallback.** Chat and quiz generation currently run only on Groq. Add a second provider with a timeout and a circuit breaker, and count how often the fallback is used.
+**Done when:**
 
-**Per-user rate limiting.** Redis is already in your stack, so this is cheap to add.
+- [ ] Every chat turn writes one `llm_usage` row + one structured log line.
+- [ ] Can answer "p95 TTFT this week?" from Supabase dashboard in <1 min.
+- [ ] No new env vars for observability, no `/metrics` endpoint, no collector.
 
-**Evals in CI.** The product's core promise is guiding students with questions rather than handing them answers, and that promise gives you a distinctive eval.
-- Build 50 to 100 student prompts, including ones that try to extract the answer directly.
-- Score two things: how often the tutor gives the answer away, and how well responses stay grounded in the documents.
-- Use an LLM judge, but first check it against a set you labeled by hand.
-- Fail the build on regressions.
+## 3. Boring reliability defaults
 
-**Caching.** Cache embeddings by content hash so re-uploaded files skip re-embedding, and cache quiz and mind map generation per document.
+Small, high-leverage, all reuse existing deps. Each is <1 day.
 
-**Real users.** This matters most.
-- Ask instructors or TAs before promoting it in a course. The Socratic design is a good argument that it supports academic integrity.
-- Since students upload course materials, add a short privacy note and a way to delete documents.
+- **Provider fallback:** Groq primary + one fallback with timeout (~8s) and a
+  simple circuit breaker. Record in `llm_usage.fallback_used`. Touch only
+  `apps/web/lib/groq.ts` (+ new `apps/web/lib/llm.ts` wrapper).
+- **Per-user rate limiting:** sliding window in middleware/API routes using the
+  existing Upstash Redis (`apps/web/lib/redis.ts`). Start with chat only,
+  e.g. 30 req/min. Return 429, no new service.
+- **Embedding + generation cache:** sha256 content hash on chunks — re-uploads
+  skip re-embedding. Cache quiz/mindmap per `document_id` in Postgres.
+  Touch `apps/web/lib/embedder.ts`, `quiz.ts`, `mindmap.ts`.
+- **Socratic eval (small):** 20 prompts (not 50–100), including 5 answer-extraction
+  attempts. LLM-judge scores: (a) answer-leak rate, (b) groundedness. Runs as
+  `npm run eval`, fails CI on regression vs. checked-in baseline. Calibrate judge
+  once against ~20 hand-labeled examples.
 
-## Suggested order
+**Done when:**
 
-1. **Hygiene (a few days):** secrets, ownership, README cleanup.
-2. **Observability and the usage table (1 to 2 weeks):** this gives you baseline numbers.
-3. **Users on text mode:** onboard real students while adding fallback, rate limiting, and evals.
-4. **Voice mode version 1:** measured from day one with the tracing you already built.
-5. **Optimize and write up:** use the data to improve, then write a post about what changed.
+- [ ] Kill primary provider in dev → fallback serves chat, counter increments.
+- [ ] Spam chat → 429 after limit, no crash.
+- [ ] Re-upload same file → 0 new embedding calls.
+- [ ] `npm run eval` passes in CI.
 
-This order is deliberate. If observability comes before voice and before users, every later change has a before/after number. That gives you a resume line like: "Extended Socrati, an AI tutor used by N students, adding voice mode with p95 speech-to-reply latency of X ms, and cut chat p95 time to first token from A to B and cost per session by C% using tracing and usage data." Fill in only numbers you actually measured.
+---
+
+## Execution order
+
+1. **Drizzle baseline (2–4 days).** Unblocks everything else safely.
+2. **Usage table + structured logs (2–3 days).** Gives baseline numbers before
+   touching reliability.
+3. **Fallback → rate limit → cache → eval (3–5 days).** Each merges independently.
+
+Total: ~2 weeks. Do not start 3 before 2 — otherwise there is no before/after.
+
+## Files touched
+
+- `apps/web/lib/db/schema.ts` (new), `apps/web/lib/repository.ts`
+- `supabase/migrations/0012_llm_usage.sql` (new, only new migration)
+- `apps/web/lib/logger.ts`, `apps/web/lib/rag.ts`, `apps/web/lib/worker.ts`
+- `apps/web/lib/groq.ts` → `apps/web/lib/llm.ts`, `apps/web/lib/redis.ts`
+- `apps/web/lib/embedder.ts`, `quiz.ts`, `mindmap.ts`
+- `tests/` — extend existing `*.test.ts`, plus `eval/` baseline (20 prompts)
+
+## Out of scope (Phase 3+)
+
+- **Voice mode — see `PHASE3.md`.** If revisited: record-locally + upload-async
+  only, cascaded STT → existing RAG → TTS, no gateway, no interruption, no VAD.
+  Reuses `llm_usage` for cost/min. Needs real-user demand first.
+- Prometheus / Grafana / OTel Collector, Go/Python services, WebSockets,
+  realtime models, separate product-events pipeline, multi-provider routing
+  beyond one fallback.
+
+## Success criteria
+
+Phase 2 is done when a new contributor can:
+
+```bash
+npm install
+npx supabase db push
+npm run dev
+npm test
+```
+
+...and then rename a column via `schema.ts` + `db:generate`, see chat TTFT in
+Supabase, and break the Socratic behavior without CI catching it — none of
+which require reading raw SQL or standing up extra infrastructure.
