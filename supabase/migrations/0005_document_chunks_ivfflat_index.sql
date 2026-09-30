@@ -1,15 +1,14 @@
--- IVFFlat index for approximate nearest-neighbour search on 3072-dim embeddings.
+-- ── 0005_document_chunks_ivfflat_index.sql ──────────────────────────────────
+-- SUPERSEDED BY 0010_document_chunks_embedding_1536.sql — intentionally a no-op.
 --
--- lists=100 is a reasonable default for tables under ~1M rows.
--- After a bulk data load, rebuild with: REINDEX INDEX document_chunks_embedding_idx;
--- For queries, set probe count with: SET ivfflat.probes = 10;
+-- This migration originally created an ivfflat index on document_chunks.embedding
+-- while 0003 had widened that column to vector(3072). pgvector caps ivfflat (and
+-- hnsw) at 2000 dimensions, so the statement always failed with:
 --
--- vector_cosine_ops matches cosine similarity, which is the standard metric
--- for comparing text embeddings produced by Gemini gemini-embedding-001.
+--   ERROR: column cannot have more than 2000 dimensions for ivfflat index
+--
+-- which aborted the migration run. It is left in place, empty, so that databases
+-- which already recorded 0005 as applied stay consistent with fresh ones. 0010
+-- sets the column to vector(1536) and creates the index.
 
-create index if not exists document_chunks_embedding_idx
-    on public.document_chunks
-    using ivfflat (embedding vector_cosine_ops)
-    with (lists = 100);
-
-notify pgrst, 'reload schema';
+select 1;

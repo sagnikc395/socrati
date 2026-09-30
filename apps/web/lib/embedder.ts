@@ -11,18 +11,41 @@ export interface EmbeddedChunk extends Chunk {
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
-// Using Google Gemini text-embedding-004 (768 dims), free tier, 1,500 RPM.
-// Make sure your Prisma schema has: embedding vector(768)
+// Using Google gemini-embedding-001, requested at 1536 dimensions.
+//
+// 1536 is deliberate, not arbitrary: pgvector's ivfflat and hnsw indexes
+// support at most 2000 dimensions, so the model's native 3072 cannot be
+// indexed. `document_chunks.embedding` is vector(1536) to match — see
+// supabase/migrations/0010_document_chunks_embedding_1536.sql.
 //
 // Set GEMINI_API_KEY in your .env file.
 // Set EMBEDDING_MOCK=true in .env to skip API calls during local dev/testing.
 
 const EMBEDDING_MODEL = "gemini-embedding-001";
-const EMBEDDING_DIM = 3072;
+export const EMBEDDING_DIM = 1536;
 const GEMINI_EMBED_URL = `https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:batchEmbedContents`;
 
 // Gemini batchEmbedContents supports up to 100 inputs per request.
 const BATCH_SIZE = 100;
+
+// ---------------------------------------------------------------------------
+// Normalization
+// ---------------------------------------------------------------------------
+// gemini-embedding-001 only returns unit-length vectors at its native 3072
+// dimensions. Any smaller outputDimensionality is a truncation of that vector
+// and must be re-normalized by the caller, otherwise cosine distance in
+// pgvector is computed against vectors of differing magnitude and similarity
+// scores drift below the retrieval threshold.
+
+function normalize(vector: number[]): number[] {
+    let sumOfSquares = 0;
+    for (const value of vector) sumOfSquares += value * value;
+
+    const magnitude = Math.sqrt(sumOfSquares);
+    if (magnitude === 0) return vector;
+
+    return vector.map((value) => value / magnitude);
+}
 
 // ---------------------------------------------------------------------------
 // Mock embedding (dev / test)
@@ -32,10 +55,14 @@ function mockEmbedding(text: string): number[] {
     let seed = 0;
     for (let i = 0; i < text.length; i++) seed = (seed * 31 + text.charCodeAt(i)) >>> 0;
 
-    return Array.from({ length: EMBEDDING_DIM }, (_, i) => {
-        const x = Math.sin(seed + i) * 10000;
-        return x - Math.floor(x);
-    });
+    // Normalized like the real vectors, so cosine distance behaves the same
+    // way in tests as it does in production.
+    return normalize(
+        Array.from({ length: EMBEDDING_DIM }, (_, i) => {
+            const x = Math.sin(seed + i) * 10000;
+            return x - Math.floor(x);
+        }),
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -49,6 +76,7 @@ async function fetchEmbeddings(texts: string[]): Promise<number[][]> {
     const requests = texts.map((text) => ({
         model: `models/${EMBEDDING_MODEL}`,
         content: { parts: [{ text }] },
+        outputDimensionality: EMBEDDING_DIM,
     }));
 
     const response = await fetch(`${GEMINI_EMBED_URL}?key=${apiKey}`, {
@@ -65,7 +93,14 @@ async function fetchEmbeddings(texts: string[]): Promise<number[][]> {
     const data = await response.json();
 
     // Response shape: { embeddings: [{ values: number[] }, ...] }
-    return (data.embeddings as { values: number[] }[]).map((e) => e.values);
+    const embeddings = data.embeddings as { values: number[] }[] | undefined;
+    if (!embeddings || embeddings.length !== texts.length) {
+        throw new Error(
+            `Gemini embeddings API returned ${embeddings?.length ?? 0} embeddings for ${texts.length} inputs.`,
+        );
+    }
+
+    return embeddings.map((e) => normalize(e.values));
 }
 
 // ---------------------------------------------------------------------------

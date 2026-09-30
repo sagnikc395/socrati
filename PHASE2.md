@@ -9,31 +9,8 @@ Yes, extending Socrati makes more sense than starting over. It is already a full
 
 That covers most of the "complete application" list from my earlier message. Voice mode and observability are both reasonable additions, but each needs adjustments. There are also a few things to fix first.
 
-## Fix these first
-
-**1. Committed environment files.** The repo root contains `.env.local` and `.env.test`. I can't see their contents. If they hold real keys (a Supabase service role key, a Groq API key, a Redis URL), do this now:
-- Rotate those keys.
-- Delete the files and add them to `.gitignore`.
-- Purge them from git history with `git filter-repo`.
-
-The parent repo likely has the same files, so tell your teammates. A startup reviewer who spots committed secrets will likely stop reading.
-
-**2. Ownership.** Your repo is a fork of your teammate's repo (deepalisingh11/socrati), and interviewers will ask what you personally built. Also:
-- Forks are hidden from GitHub search by default, and your fork's page is marked noindex, so search engines don't index it either.
-- Commits that exist only in a fork generally don't count toward your contribution graph.
-
-If you plan to keep developing it on your own:
-- Agree on that with your teammates.
-- Check the license.
-- Either ask GitHub support to detach the fork, or create a new repo that keeps the history.
-- Credit the original team in the README.
-- Add a "My contributions" section linking to your PRs, and clearly mark which features came after the class ended.
-
-**3. Clean up the leftover docs app.** `apps/docs` is described as a secondary Next.js scaffold. Remove it or fill it in.
 
 ## Observability: good idea, but Prometheus doesn't fit your deployment as is
-
-Prometheus works by periodically pulling metrics from long-running processes. Your web app runs on Vercel's serverless functions, which start and stop per request, so there is no stable `/metrics` endpoint to pull from. Split the work like this.
 
 **Web app (Next.js on Vercel).** Instrument it with OpenTelemetry through Next.js's `instrumentation.ts` hook. Push traces and metrics over OTLP to an OpenTelemetry Collector, or directly to a managed Grafana stack.
 
