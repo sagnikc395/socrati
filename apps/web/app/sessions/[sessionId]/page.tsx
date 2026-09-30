@@ -65,29 +65,13 @@ export default function SessionPage() {
     const docCount = documents.length;
 
     return (
-        <div style={{ display: 'flex', minHeight: '100vh' }}>
+        <div className="shell">
             <Sidebar />
-            <main
-                style={{
-                    flex: 1,
-                    background: 'var(--main)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                }}
-            >
+            <main>
                 {/* Header */}
-                <div style={{ padding: '20px 24px 15px', borderBottom: '1px solid var(--b1)' }}>
-                    <h1
-                        style={{
-                            fontSize: 20,
-                            fontWeight: 600,
-                            color: 'var(--td)',
-                            letterSpacing: '-0.2px',
-                        }}
-                    >
-                        Study session
-                    </h1>
-                    <p style={{ fontSize: 12, color: 'var(--t3)', marginTop: 3 }}>
+                <div className="page-head">
+                    <h1>Study session</h1>
+                    <p>
                         {loading
                             ? 'Loading…'
                             : error
@@ -110,16 +94,7 @@ export default function SessionPage() {
                             gap: 6,
                         }}
                     >
-                        <div
-                            style={{
-                                fontSize: 10,
-                                fontWeight: 500,
-                                color: 'var(--t3)',
-                                letterSpacing: '.07em',
-                                textTransform: 'uppercase',
-                                marginBottom: 4,
-                            }}
-                        >
+                        <div className="overline" style={{ marginBottom: 4 }}>
                             Documents
                         </div>
 
@@ -141,10 +116,8 @@ export default function SessionPage() {
                                     border: '1px solid var(--b1)',
                                     fontSize: 13,
                                     color: 'var(--td)',
-                                    whiteSpace: 'nowrap',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
                                 }}
+                                className="ellipsis"
                                 title={doc.title}
                             >
                                 {doc.title}

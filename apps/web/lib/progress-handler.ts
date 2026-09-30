@@ -1,8 +1,6 @@
-import { NextResponse } from 'next/server';
-
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-export type QuizRow = {
+type QuizRow = {
     quiz_id: string;
     score: number | null;
     question_count: number;
@@ -11,15 +9,26 @@ export type QuizRow = {
     documents: { title: string } | null;
 };
 
-export type ProgressDependencies = {
-    createSupabaseClient: () => Promise<{
-        auth: {
-            getSession: () => Promise<{
-                data: { session: { user: { id: string }; access_token: string } | null };
-            }>;
+type ProgressSupabaseClient = {
+    auth: {
+        getSession: () => Promise<{
+            data: { session: { user: { id: string } } | null };
+        }>;
+    };
+    from(table: string): {
+        select(columns: string): {
+            eq(column: string, value: string): {
+                order(column: string, options: { ascending: boolean }): PromiseLike<{
+                    data: QuizRow[] | null;
+                    error: { message: string } | null;
+                }>;
+            };
         };
-        from: (table: string) => any;
-    }>;
+    };
+};
+
+export type ProgressDependencies = {
+    createSupabaseClient: () => Promise<ProgressSupabaseClient>;
 };
 
 // ── Handler ────────────────────────────────────────────────────────────────────
@@ -29,7 +38,7 @@ export async function handleProgressGet(deps: ProgressDependencies): Promise<Res
 
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { data: quizzes, error } = await supabase
@@ -46,10 +55,10 @@ export async function handleProgressGet(deps: ProgressDependencies): Promise<Res
         .order('created_at', { ascending: false });
 
     if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return Response.json({ error: error.message }, { status: 500 });
     }
 
-    const attempts = (quizzes ?? []).map((q: any) => ({
+    const attempts = (quizzes ?? []).map((q) => ({
         quiz_id: q.quiz_id,
         score: q.score ?? 0,
         question_count: q.question_count,
@@ -58,5 +67,5 @@ export async function handleProgressGet(deps: ProgressDependencies): Promise<Res
         document_title: q.documents?.title ?? 'Unknown document',
     }));
 
-    return NextResponse.json({ attempts });
+    return Response.json({ attempts });
 }

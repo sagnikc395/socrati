@@ -37,17 +37,8 @@ export function ChatInput({ input, handleInputChange, handleSubmit, setInput, is
                         key={hint}
                         onClick={() => { setInput(hint); textareaRef.current?.focus(); }}
                         type="button"
-                        style={{
-                            fontSize: 11,
-                            color: 'var(--t2)',
-                            background: 'var(--card)',
-                            border: '1px solid var(--b1)',
-                            borderRadius: 99,
-                            padding: '4px 12px',
-                            cursor: 'pointer',
-                            fontFamily: 'inherit',
-                            whiteSpace: 'nowrap',
-                        }}
+                        className="btn btn-secondary"
+                        style={{ fontSize: 11, borderRadius: 99, padding: '4px 12px', whiteSpace: 'nowrap' }}
                     >
                         {hint}
                     </button>

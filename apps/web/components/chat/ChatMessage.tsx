@@ -1,23 +1,25 @@
 import type { UIMessage } from 'ai';
 
-export function ChatMessage({ message }: { message: UIMessage }) {
+const WEB_SEARCH_TAG = '<!-- web_search_used -->';
+
+// ai v6 UIMessage carries `parts` only; DB-hydrated messages arrive with a
+// plain `content` string, so read it off a loosened type here.
+type IncomingMessage = UIMessage & { content?: string };
+
+export function ChatMessage({ message }: { message: IncomingMessage }) {
     const isUser = message.role === 'user';
 
-    // ai v6: streamed assistant messages might use `parts`, but DB hydrated messages use `content`
     const text = isUser
-        ? ((message as any).content as string)
-        : ((message as any).parts as { type: string; text?: string }[] | undefined)
-            ?.filter((p: any) => p.type === 'text')
-            .map((p: any) => p.text ?? '')
-            .join('') || ((message as any).content as string) || '';
+        ? typeof message.content === 'string' ? message.content : ''
+        : message.parts
+              ?.filter((p) => p.type === 'text')
+              .map((p) => (p.type === 'text' ? p.text : ''))
+              .join('') || message.content || '';
 
-    // Detect and strip hidden web search signal
-    const WEB_SEARCH_TAG = '<!-- web_search_used -->';
-    const hasSearchTag = text.includes(WEB_SEARCH_TAG);
+    // Hidden tag from the server signals that this turn used web search
+    const webSearchUsed = text.includes(WEB_SEARCH_TAG) ||
+        (message.metadata as { webSearchUsed?: boolean } | undefined)?.webSearchUsed === true;
     const cleanedText = text.replace(WEB_SEARCH_TAG, '').trim();
-
-    // Server sends annotation in some versions, or we use the text tag as a fallback
-    const webSearchUsed = hasSearchTag || (message as any).annotations?.some((a: any) => a.webSearchUsed === true);
 
     return (
         <div style={{
@@ -41,8 +43,8 @@ export function ChatMessage({ message }: { message: UIMessage }) {
                         padding: '4px 8px',
                         background: 'var(--b1)',
                         borderRadius: 6,
-                        marginBottom: text ? 10 : 0,
-                        color: 'var(--ts)',
+                        marginBottom: cleanedText ? 10 : 0,
+                        color: 'var(--td)',
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: 6,
@@ -57,4 +59,3 @@ export function ChatMessage({ message }: { message: UIMessage }) {
         </div>
     );
 }
-

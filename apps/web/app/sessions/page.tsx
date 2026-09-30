@@ -34,28 +34,20 @@ export default async function SessionsListPage() {
     }
 
     return (
-        <div style={{ display: 'flex', height: '100vh', background: 'var(--bg)' }}>
+        <div className="shell" style={{ height: '100vh' }}>
             <Sidebar />
 
-            <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
+            <main style={{ overflowY: 'auto' }}>
                 <div style={{ padding: '40px 60px', maxWidth: 1000, margin: '0 auto', width: '100%' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
                         <div>
                             <h1 style={{ fontSize: 24, fontWeight: 600, color: 'var(--td)', margin: 0 }}>Study Sessions</h1>
                             <p style={{ fontSize: 14, color: 'var(--t2)', marginTop: 8 }}>Resume your past Socratic tutoring sessions.</p>
                         </div>
-                        <Link 
-                            href="/session/new" 
-                            style={{
-                                background: 'var(--acc)',
-                                color: '#eef8f2',
-                                padding: '10px 16px',
-                                borderRadius: 8,
-                                fontSize: 14,
-                                fontWeight: 500,
-                                textDecoration: 'none',
-                                transition: 'opacity 0.2s'
-                            }}
+                        <Link
+                            href="/session/new"
+                            className="btn btn-primary"
+                            style={{ padding: '10px 16px', fontSize: 14 }}
                         >
                             + New Session
                         </Link>
@@ -66,18 +58,10 @@ export default async function SessionsListPage() {
                             <div style={{ fontSize: 40, marginBottom: 16 }}>📚</div>
                             <h2 style={{ fontSize: 16, fontWeight: 500, color: 'var(--td)', margin: 0 }}>No sessions yet</h2>
                             <p style={{ fontSize: 14, color: 'var(--t2)', marginTop: 8, marginBottom: 24 }}>Upload some documents to start your first Socratic study session.</p>
-                            <Link 
-                                href="/session/new" 
-                                style={{
-                                    background: 'transparent',
-                                    color: 'var(--acc)',
-                                    border: '1px solid var(--acc)',
-                                    padding: '8px 16px',
-                                    borderRadius: 6,
-                                    fontSize: 13,
-                                    fontWeight: 500,
-                                    textDecoration: 'none'
-                                }}
+                            <Link
+                                href="/session/new"
+                                className="btn btn-secondary"
+                                style={{ fontSize: 13 }}
                             >
                                 Start a Session
                             </Link>
@@ -99,10 +83,7 @@ export default async function SessionsListPage() {
                                         href={`/sessions/${session.session_id}`}
                                         style={{ textDecoration: 'none' }}
                                     >
-                                        <div className="session-card" style={{
-                                            background: 'var(--card)',
-                                            border: '1px solid var(--b1)',
-                                            borderRadius: 12,
+                                        <div className="session-card card" style={{
                                             padding: 20,
                                             height: '100%',
                                             display: 'flex',

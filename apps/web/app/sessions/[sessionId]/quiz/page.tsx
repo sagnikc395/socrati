@@ -86,30 +86,13 @@ function SetupScreen({
                     </div>
                 </div>
 
-                {error && (
-                    <div style={{
-                        background: '#fef2f2',
-                        border: '1px solid #fca5a5',
-                        borderRadius: 8,
-                        padding: '10px 14px',
-                        fontSize: 13,
-                        color: '#b91c1c',
-                        marginBottom: 20,
-                    }}>
-                        {error}
-                    </div>
-                )}
+                {error && <div className="error-box" style={{ marginBottom: 20 }}>{error}</div>}
 
                 {!documentId && (
-                    <div style={{
-                        background: '#fffbeb',
-                        border: '1px solid #fcd34d',
-                        borderRadius: 8,
-                        padding: '10px 14px',
-                        fontSize: 13,
-                        color: '#92400e',
-                        marginBottom: 20,
-                    }}>
+                    <div
+                        className="hint-box"
+                        style={{ marginBottom: 20, background: '#fffbeb', border: '1px solid #fcd34d', color: '#92400e' }}
+                    >
                         No document found for this session. Go back and make sure a document is attached.
                     </div>
                 )}
@@ -117,18 +100,8 @@ function SetupScreen({
                 <button
                     onClick={() => onStart(selected)}
                     disabled={!documentId}
-                    style={{
-                        width: '100%',
-                        padding: '13px 0',
-                        borderRadius: 10,
-                        border: 'none',
-                        background: documentId ? 'var(--acc)' : 'var(--b1)',
-                        color: 'white',
-                        fontSize: 14,
-                        fontWeight: 600,
-                        cursor: documentId ? 'pointer' : 'default',
-                        fontFamily: 'inherit',
-                    }}
+                    className="btn btn-primary"
+                    style={{ width: '100%', padding: '13px 0', fontSize: 14, fontWeight: 600, borderRadius: 10 }}
                 >
                     Generate Quiz
                 </button>
@@ -307,18 +280,8 @@ function ResultsScreen({
 
                 <button
                     onClick={onReturnToSession}
-                    style={{
-                        width: '100%',
-                        padding: '13px 0',
-                        borderRadius: 10,
-                        border: 'none',
-                        background: 'var(--acc)',
-                        color: 'white',
-                        fontSize: 14,
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        fontFamily: 'inherit',
-                    }}
+                    className="btn btn-primary"
+                    style={{ width: '100%', padding: '13px 0', fontSize: 14, fontWeight: 600, borderRadius: 10 }}
                 >
                     Return to Session
                 </button>
@@ -435,10 +398,10 @@ export default function QuizPage() {
     const allAnswered = answeredCount === questions.length;
 
     return (
-        <div style={{ display: 'flex', minHeight: '100vh' }}>
+        <div className="shell">
             <Sidebar />
-            <main style={{ flex: 1, background: 'var(--main)', display: 'flex', flexDirection: 'column' }}>
-                <div style={{ padding: '20px 24px 15px', borderBottom: '1px solid var(--b1)', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <main>
+                <div className="page-head" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <button
                         onClick={() => router.push(`/sessions/${sessionId}`)}
                         style={{
@@ -474,15 +437,9 @@ export default function QuizPage() {
                 {phase === 'taking' && currentQuestion && (
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 24px', gap: 20, overflowY: 'auto' }}>
                         <div style={{ width: '100%', maxWidth: 680 }}>
-                            <div style={{ height: 4, background: 'var(--b1)', borderRadius: 99, overflow: 'hidden' }}>
-                                <div style={{
-                                    height: '100%',
-                                    width: `${((currentIndex + 1) / questions.length) * 100}%`,
-                                    background: 'var(--acc)',
-                                    borderRadius: 99,
-                                    transition: 'width 0.3s',
-                                }} />
-                            </div>
+                        <div className="meter" style={{ borderRadius: 99 }}>
+                            <div style={{ width: `${((currentIndex + 1) / questions.length) * 100}%` }} />
+                        </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
                                 <span style={{ fontSize: 11, color: 'var(--t3)' }}>
                                     {answeredCount}/{questions.length} answered
@@ -505,18 +462,8 @@ export default function QuizPage() {
                             <button
                                 onClick={handlePrev}
                                 disabled={currentIndex === 0}
-                                style={{
-                                    flex: 1,
-                                    padding: '12px 0',
-                                    borderRadius: 10,
-                                    border: '1.5px solid var(--b1)',
-                                    background: 'var(--card)',
-                                    color: 'var(--t2)',
-                                    fontSize: 14,
-                                    cursor: currentIndex === 0 ? 'default' : 'pointer',
-                                    opacity: currentIndex === 0 ? 0.4 : 1,
-                                    fontFamily: 'inherit',
-                                }}
+                                className="btn btn-secondary"
+                                style={{ flex: 1, padding: '12px 0', fontSize: 14 }}
                             >
                                 ← Previous
                             </button>
@@ -524,18 +471,8 @@ export default function QuizPage() {
                             {currentIndex < questions.length - 1 ? (
                                 <button
                                     onClick={handleNext}
-                                    style={{
-                                        flex: 1,
-                                        padding: '12px 0',
-                                        borderRadius: 10,
-                                        border: 'none',
-                                        background: 'var(--acc)',
-                                        color: 'white',
-                                        fontSize: 14,
-                                        fontWeight: 600,
-                                        cursor: 'pointer',
-                                        fontFamily: 'inherit',
-                                    }}
+                                    className="btn btn-primary"
+                                    style={{ flex: 1, padding: '12px 0', fontSize: 14, fontWeight: 600 }}
                                 >
                                     Next →
                                 </button>
@@ -543,18 +480,8 @@ export default function QuizPage() {
                                 <button
                                     onClick={handleSubmit}
                                     disabled={!allAnswered}
-                                    style={{
-                                        flex: 1,
-                                        padding: '12px 0',
-                                        borderRadius: 10,
-                                        border: 'none',
-                                        background: allAnswered ? 'var(--acc)' : 'var(--b1)',
-                                        color: 'white',
-                                        fontSize: 14,
-                                        fontWeight: 600,
-                                        cursor: allAnswered ? 'pointer' : 'default',
-                                        fontFamily: 'inherit',
-                                    }}
+                                    className="btn btn-primary"
+                                    style={{ flex: 1, padding: '12px 0', fontSize: 14, fontWeight: 600 }}
                                 >
                                     {allAnswered ? 'Submit Quiz' : `Answer all questions (${questions.length - answeredCount} left)`}
                                 </button>

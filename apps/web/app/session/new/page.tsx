@@ -3,7 +3,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
-// import Sidebar from '../../components/Sidebar';
 
 type ParseStatus = 'uploading' | 'processing' | 'ready' | 'failed';
 
@@ -221,18 +220,13 @@ export default function NewSessionPage() {
     const readyCount = selected.size;
 
     return (
-        <div style={{ display: 'flex', minHeight: '100vh' }}>
+        <div className="shell">
             <Sidebar />
-            <main style={{ flex: 1, background: 'var(--main)', display: 'flex', flexDirection: 'column' }}>
-
+            <main>
                 {/* Header */}
-                <div style={{ padding: '20px 24px 15px', borderBottom: '1px solid var(--b1)' }}>
-                    <h1 style={{ fontSize: 20, fontWeight: 600, color: 'var(--td)', letterSpacing: '-0.2px' }}>
-                        My documents
-                    </h1>
-                    <p style={{ fontSize: 12, color: 'var(--t3)', marginTop: 3 }}>
-                        Upload study materials, then select files to start a session
-                    </p>
+                <div className="page-head">
+                    <h1>My documents</h1>
+                    <p>Upload study materials, then select files to start a session</p>
                 </div>
 
                 {/* Body */}
@@ -271,11 +265,8 @@ export default function NewSessionPage() {
                         <div style={{ fontSize: 12, color: 'var(--t3)' }}>PDF, PPTX, or TXT · max 25 MB per file</div>
                         <button
                             type="button"
-                            style={{
-                                marginTop: 4, background: 'var(--acc)', color: '#eef8f2',
-                                border: 'none', borderRadius: 99, padding: '6px 18px',
-                                fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 500,
-                            }}
+                            className="btn btn-primary"
+                            style={{ marginTop: 4, borderRadius: 99, padding: '6px 18px', fontSize: 12 }}
                         >
                             Browse files
                         </button>
@@ -292,10 +283,7 @@ export default function NewSessionPage() {
                     {/* Document list */}
                     {docs.length > 0 && (
                         <>
-                            <div style={{
-                                fontSize: 10, fontWeight: 500, color: 'var(--t3)',
-                                letterSpacing: '.07em', textTransform: 'uppercase', marginBottom: 9,
-                            }}>
+                            <div className="overline" style={{ marginBottom: 9 }}>
                                 Uploaded documents
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
@@ -333,20 +321,7 @@ export default function NewSessionPage() {
                                 </span>
                             )}
                         </div>
-                        <button
-                            onClick={handleStartSession}
-                            disabled={starting}
-                            style={{
-                                display: 'flex', alignItems: 'center', gap: 7,
-                                background: starting ? 'var(--hintb)' : 'var(--acc)',
-                                color: starting ? 'var(--t3)' : '#eef8f2',
-                                border: 'none', borderRadius: 9, padding: '9px 18px',
-                                fontSize: 13, fontWeight: 500,
-                                cursor: starting ? 'not-allowed' : 'pointer',
-                                fontFamily: 'inherit',
-                                transition: 'background 0.15s',
-                            }}
-                        >
+                        <button onClick={handleStartSession} disabled={starting} className="btn btn-primary">
                             {starting ? 'Starting…' : 'Start session'}
                             {!starting && (
                                 <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
@@ -398,7 +373,7 @@ function DocRow({ doc, isSelected, onToggle }: {
             <FileIcon status={doc.status} />
 
             <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--td)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div className="ellipsis" style={{ fontSize: 13, fontWeight: 500, color: 'var(--td)' }}>
                     {doc.name}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2 }}>
@@ -415,14 +390,6 @@ function DocRow({ doc, isSelected, onToggle }: {
             </div>
 
             <StatusBadge status={doc.status} />
-
-            <style>{`
-        @keyframes pulse {
-          0%   { width: 15%; }
-          50%  { width: 72%; }
-          100% { width: 15%; }
-        }
-      `}</style>
         </div>
     );
 }
@@ -450,7 +417,7 @@ function StatusBadge({ status }: { status: ParseStatus }) {
     };
     const { bg, color, label } = map[status];
     return (
-        <span style={{ fontSize: 10, fontWeight: 500, padding: '3px 9px', borderRadius: 10, flexShrink: 0, background: bg, color }}>
+        <span className="badge" style={{ borderRadius: 10, background: bg, color }}>
             {label}
         </span>
     );

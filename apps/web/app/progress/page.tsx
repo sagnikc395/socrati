@@ -53,20 +53,7 @@ function EmptyState({ onStart }: { onStart: () => void }) {
                 <p style={{ fontSize: 14, color: 'var(--t2)', lineHeight: 1.6, marginBottom: 24 }}>
                     Complete at least one quiz to start tracking your progress. Your scores, topics, and improvement trends will appear here.
                 </p>
-                <button
-                    onClick={onStart}
-                    style={{
-                        background: 'var(--acc)',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: 8,
-                        padding: '10px 20px',
-                        fontSize: 14,
-                        fontWeight: 500,
-                        cursor: 'pointer',
-                        fontFamily: 'inherit',
-                    }}
-                >
+                <button onClick={onStart} className="btn btn-primary" style={{ padding: '10px 20px', fontSize: 14 }}>
                     Go to Sessions
                 </button>
             </div>
@@ -78,14 +65,8 @@ function EmptyState({ onStart }: { onStart: () => void }) {
 
 function ScoreBar({ pct, color = 'var(--acc)' }: { pct: number; color?: string }) {
     return (
-        <div style={{ height: 6, background: 'var(--b1)', borderRadius: 99, overflow: 'hidden' }}>
-            <div style={{
-                height: '100%',
-                width: `${pct}%`,
-                background: color,
-                borderRadius: 99,
-                transition: 'width 0.4s ease',
-            }} />
+        <div className="meter">
+            <div style={{ width: `${pct}%`, background: color }} />
         </div>
     );
 }
@@ -146,15 +127,13 @@ export default function ProgressPage() {
     const needsReviewCount = topics.filter((t) => t.status === 'Needs Review').length;
 
     return (
-        <div style={{ display: 'flex', minHeight: '100vh' }}>
+        <div className="shell">
             <Sidebar />
-            <main style={{ flex: 1, background: 'var(--main)', display: 'flex', flexDirection: 'column' }}>
+            <main>
                 {/* Header */}
-                <div style={{ padding: '20px 32px 15px', borderBottom: '1px solid var(--b1)' }}>
-                    <h1 style={{ fontSize: 20, fontWeight: 600, color: 'var(--td)' }}>My Progress</h1>
-                    <p style={{ fontSize: 12, color: 'var(--t3)', marginTop: 3 }}>
-                        Track your quiz scores and learning trends
-                    </p>
+                <div className="page-head" style={{ padding: '20px 32px 15px' }}>
+                    <h1>My Progress</h1>
+                    <p>Track your quiz scores and learning trends</p>
                 </div>
 
                 {loading && (
@@ -184,13 +163,8 @@ export default function ProgressPage() {
                                     { label: 'Topics Mastered', value: masteredCount, sub: `of ${topics.length} topic${topics.length !== 1 ? 's' : ''}` },
                                     { label: 'Needs Review', value: needsReviewCount, sub: 'topics below 50%' },
                                 ].map((card) => (
-                                    <div key={card.label} style={{
-                                        background: 'var(--card)',
-                                        border: '1px solid var(--b1)',
-                                        borderRadius: 12,
-                                        padding: '20px 24px',
-                                    }}>
-                                        <div style={{ fontSize: 11, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>
+                                    <div key={card.label} className="card" style={{ padding: '20px 24px' }}>
+                                        <div className="overline" style={{ fontSize: 11, letterSpacing: '.06em', marginBottom: 8 }}>
                                             {card.label}
                                         </div>
                                         <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--td)', marginBottom: 4 }}>
@@ -202,12 +176,7 @@ export default function ProgressPage() {
                             </div>
 
                             {/* ── Score trend chart ── */}
-                            <div style={{
-                                background: 'var(--card)',
-                                border: '1px solid var(--b1)',
-                                borderRadius: 12,
-                                padding: '20px 24px',
-                            }}>
+                            <div className="card" style={{ padding: '20px 24px' }}>
                                 <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--td)', marginBottom: 20 }}>
                                     Score Trend (last {chartData.length} quizzes)
                                 </div>
@@ -248,12 +217,7 @@ export default function ProgressPage() {
                             </div>
 
                             {/* ── Per-topic breakdown ── */}
-                            <div style={{
-                                background: 'var(--card)',
-                                border: '1px solid var(--b1)',
-                                borderRadius: 12,
-                                padding: '20px 24px',
-                            }}>
+                            <div className="card" style={{ padding: '20px 24px' }}>
                                 <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--td)', marginBottom: 16 }}>
                                     Topics
                                 </div>
@@ -264,7 +228,7 @@ export default function ProgressPage() {
                                             <div key={t.title}>
                                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                                                        <span style={{ fontSize: 13, color: 'var(--td)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                        <span className="ellipsis" style={{ fontSize: 13, color: 'var(--td)', fontWeight: 500 }}>
                                                             {t.title}
                                                         </span>
                                                         <span style={{
@@ -298,12 +262,7 @@ export default function ProgressPage() {
 
                             {/* ── Recommendations ── */}
                             {needsReviewCount > 0 && (
-                                <div style={{
-                                    background: '#fef2f2',
-                                    border: '1px solid #fca5a5',
-                                    borderRadius: 12,
-                                    padding: '16px 20px',
-                                }}>
+                                <div className="error-box" style={{ borderRadius: 12, padding: '16px 20px' }}>
                                     <div style={{ fontSize: 13, fontWeight: 500, color: '#b91c1c', marginBottom: 8 }}>
                                         📚 Recommended: Review these topics
                                     </div>
@@ -320,12 +279,7 @@ export default function ProgressPage() {
                             )}
 
                             {/* ── Recent quiz history ── */}
-                            <div style={{
-                                background: 'var(--card)',
-                                border: '1px solid var(--b1)',
-                                borderRadius: 12,
-                                padding: '20px 24px',
-                            }}>
+                            <div className="card" style={{ padding: '20px 24px' }}>
                                 <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--td)', marginBottom: 16 }}>
                                     Recent Quizzes
                                 </div>
@@ -348,7 +302,7 @@ export default function ProgressPage() {
                                                     border: '1px solid var(--b1)',
                                                 }}>
                                                     <div style={{ minWidth: 0 }}>
-                                                        <div style={{ fontSize: 13, color: 'var(--td)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                        <div className="ellipsis" style={{ fontSize: 13, color: 'var(--td)', fontWeight: 500 }}>
                                                             {a.document_title}
                                                         </div>
                                                         <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 2 }}>
@@ -356,14 +310,7 @@ export default function ProgressPage() {
                                                         </div>
                                                     </div>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, marginLeft: 12 }}>
-                                                        <span style={{
-                                                            fontSize: 10,
-                                                            padding: '2px 8px',
-                                                            borderRadius: 99,
-                                                            background: colors.bg,
-                                                            color: colors.text,
-                                                            fontWeight: 500,
-                                                        }}>
+                                                        <span className="badge" style={{ background: colors.bg, color: colors.text }}>
                                                             {status}
                                                         </span>
                                                         <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--td)' }}>

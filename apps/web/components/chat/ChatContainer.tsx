@@ -1,7 +1,7 @@
 'use client';
 
 import { useChat } from '@ai-sdk/react';
-import type { UIMessage as Message } from 'ai';
+import { DefaultChatTransport, type UIMessage } from 'ai';
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChatMessage } from './ChatMessage';
@@ -22,7 +22,7 @@ export function ChatContainer({
     sessionId: string; 
     documentIds: string[];
     documents?: ChatDocument[];
-    initialMessages?: Message[];
+    initialMessages?: UIMessage[];
 }) {
     const [input, setInput] = useState('');
     const [showMindMap, setShowMindMap] = useState(false);
@@ -33,16 +33,16 @@ export function ChatContainer({
     const documentIdsRef = useRef<string[]>(documentIds);
     useEffect(() => { documentIdsRef.current = documentIds; }, [documentIds]);
 
-    const defaultMessage: Message = {
+    const defaultMessage: UIMessage = {
         id: 'opening-msg',
         role: 'assistant',
-        content: "I've looked through your uploaded material. Before we dive in — what topic feels least solid to you right now?"
-    } as any;
+        parts: [{ type: 'text', text: "I've looked through your uploaded material. Before we dive in — what topic feels least solid to you right now?" }],
+    };
 
     const { messages, setMessages, sendMessage, status } = useChat({
         id: sessionId,
-        api: '/api/chat',
-    } as any);
+        transport: new DefaultChatTransport({ api: '/api/chat' }),
+    });
 
     // Explicitly hydrate state (bypasses initialMessages reference bugs in some AI SDK versions)
     useEffect(() => {
@@ -68,7 +68,7 @@ export function ChatContainer({
         e.preventDefault();
         if (!input.trim() || isLoading) return;
         void sendMessage(
-            { role: 'user', content: input.trim() } as any,
+            { text: input.trim() },
             { body: { sessionId, documentIds: documentIdsRef.current } }
         );
         setInput('');
@@ -107,39 +107,13 @@ export function ChatContainer({
                 <button
                     onClick={() => setShowMindMap((visible) => !visible)}
                     disabled={documents.length === 0}
-                    style={{
-                        fontSize: 12,
-                        fontWeight: 500,
-                        color: documents.length > 0 ? 'var(--acc1)' : 'var(--t3)',
-                        background: showMindMap ? 'var(--acl2)' : 'var(--acl)',
-                        border: '1px solid var(--acl2)',
-                        borderRadius: 8,
-                        padding: '5px 12px',
-                        cursor: documents.length > 0 ? 'pointer' : 'default',
-                        fontFamily: 'inherit',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 5,
-                    }}
+                    className="btn-chip"
                 >
                     Mind Map
                 </button>
                 <button
                     onClick={() => router.push(`/sessions/${sessionId}/quiz`)}
-                    style={{
-                        fontSize: 12,
-                        fontWeight: 500,
-                        color: 'var(--acc1)',
-                        background: 'var(--acl)',
-                        border: '1px solid var(--acl2)',
-                        borderRadius: 8,
-                        padding: '5px 12px',
-                        cursor: 'pointer',
-                        fontFamily: 'inherit',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 5,
-                    }}
+                    className="btn-chip"
                 >
                     📝 Generate quiz
                 </button>
@@ -154,7 +128,7 @@ export function ChatContainer({
                 flexDirection: 'column',
                 gap: 16,
             }}>
-                {messages?.map((msg: any) => (
+                {messages?.map((msg) => (
                     <ChatMessage key={msg.id} message={msg} />
                 ))}
 
