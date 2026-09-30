@@ -58,7 +58,7 @@ function AuthContent() {
                     </div>
                     <div>
                         <div style={{ fontSize: 14, fontStyle: 'italic', fontWeight: 400, color: 'var(--t1)', lineHeight: 1.75 }}>
-                            "Tell me and I forget. Teach me and I remember. Involve me and I learn."
+                            &ldquo;Tell me and I forget. Teach me and I remember. Involve me and I learn.&rdquo;
                         </div>
                         <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 9 }}>— Benjamin Franklin</div>
                     </div>

@@ -50,7 +50,7 @@ export default function RestrictedPage() {
                     </div>
                     <div>
                         <div style={{ fontSize: 14, fontStyle: 'italic', fontWeight: 400, color: 'var(--t1)', lineHeight: 1.75 }}>
-                            "The roots of education are bitter, but the fruit is sweet."
+                            &ldquo;The roots of education are bitter, but the fruit is sweet.&rdquo;
                         </div>
                         <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 9 }}>— Aristotle</div>
                     </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 
@@ -344,15 +344,22 @@ export default function QuizPage() {
     const [percentage, setPercentage] = useState(0);
     const [error, setError] = useState<string | null>(null);
 
-    useState(() => {
+    useEffect(() => {
+        let cancelled = false;
         fetch(`/api/sessions/${sessionId}`)
             .then((r) => r.json())
             .then((data) => {
+                if (cancelled) return;
                 const docs = data.documents ?? [];
                 if (docs.length > 0) setDocumentId(docs[0].document_id);
             })
-            .catch(() => setError('Could not load session documents.'));
-    });
+            .catch(() => {
+                if (!cancelled) setError('Could not load session documents.');
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [sessionId]);
 
     const handleStart = async (questionCount: 5 | 10 | 20) => {
         if (!documentId) return;

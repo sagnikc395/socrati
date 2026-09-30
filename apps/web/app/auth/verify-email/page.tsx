@@ -39,7 +39,7 @@ export default function VerifyEmailPage() {
                     </div>
                     <div>
                         <div style={{ fontSize: 14, fontStyle: 'italic', fontWeight: 400, color: 'var(--t1)', lineHeight: 1.75 }}>
-                            "The secret of getting ahead is getting started."
+                            &ldquo;The secret of getting ahead is getting started.&rdquo;
                         </div>
                         <div style={{ fontSize: 11, color: 'var(--t3)', marginTop: 9 }}>— Mark Twain</div>
                     </div>
