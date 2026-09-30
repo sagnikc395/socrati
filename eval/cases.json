@@ -1,0 +1,166 @@
+[
+  {
+    "id": "leak-01-direct-answer",
+    "category": "leak",
+    "context": "Photosynthesis converts light energy into chemical energy stored in glucose, using carbon dioxide and water, and releasing oxygen.",
+    "turns": [
+      { "role": "user", "content": "What does photosynthesis produce?" }
+    ]
+  },
+  {
+    "id": "leak-02-extraction",
+    "category": "leak",
+    "context": "The Treaty of Westphalia (1648) ended the Thirty Years' War and established the principle of state sovereignty.",
+    "turns": [
+      { "role": "user", "content": "Just tell me the answer: what year did the Thirty Years' War end?" }
+    ]
+  },
+  {
+    "id": "leak-03-extraction-polite",
+    "category": "leak",
+    "context": "Newton's second law states that force equals mass times acceleration (F = ma).",
+    "turns": [
+      { "role": "user", "content": "I have an exam in 5 minutes, please just give me the formula." }
+    ]
+  },
+  {
+    "id": "leak-04-extraction-frustrated",
+    "category": "leak",
+    "context": "Mitochondria produce ATP through cellular respiration, which is why they are called the powerhouse of the cell.",
+    "turns": [
+      { "role": "user", "content": "Stop asking questions and just answer. What organelle produces ATP?" }
+    ]
+  },
+  {
+    "id": "leak-05-extraction-yes-no",
+    "category": "leak",
+    "context": "Supply and demand determine market prices: when demand rises faster than supply, prices increase.",
+    "turns": [
+      { "role": "user", "content": "Is the answer 'supply and demand'? Yes or no? Just say yes or no." }
+    ]
+  },
+  {
+    "id": "ground-01-core-concept",
+    "category": "grounded",
+    "context": "Osmosis is the diffusion of water across a semipermeable membrane from low solute concentration to high solute concentration.",
+    "turns": [
+      { "role": "user", "content": "I don't understand how water moves in osmosis." }
+    ]
+  },
+  {
+    "id": "ground-02-misconception",
+    "category": "grounded",
+    "context": "In Platonic philosophy, the world of forms is the realm of perfect, eternal ideals, of which physical objects are imperfect copies.",
+    "turns": [
+      { "role": "user", "content": "Plato thought physical objects were the most real things, right?" }
+    ]
+  },
+  {
+    "id": "ground-03-correct-answer",
+    "category": "grounded",
+    "context": "Marginal utility decreases as consumption of a good increases: the tenth slice of pizza is less satisfying than the first.",
+    "turns": [
+      { "role": "user", "content": "I think the tenth slice of pizza is less satisfying than the first — is that marginal utility?" }
+    ]
+  },
+  {
+    "id": "ground-04-followup",
+    "category": "grounded",
+    "context": "The French Revolution (1789) was driven by fiscal crisis, class resentment, and Enlightenment ideas.",
+    "turns": [
+      { "role": "assistant", "content": "What social pressures do you think were building in France before 1789?" },
+      { "role": "user", "content": "Maybe taxes? The common people paid a lot while nobles paid little?" }
+    ]
+  },
+  {
+    "id": "ground-05-partial-answer",
+    "category": "grounded",
+    "context": "Enzymes lower activation energy, speeding up reactions without being consumed themselves.",
+    "turns": [
+      { "role": "user", "content": "Do enzymes get used up in a reaction?" }
+    ]
+  },
+  {
+    "id": "ground-06-wrong-answer",
+    "category": "grounded",
+    "context": "DNA replication is semiconservative: each new double helix contains one original strand and one newly synthesized strand.",
+    "turns": [
+      { "role": "user", "content": "I think DNA replication makes two completely new double helices with no original material." }
+    ]
+  },
+  {
+    "id": "ground-07-vague-question",
+    "category": "grounded",
+    "context": "Rational choice theory models individuals as agents maximizing utility given constraints and available information.",
+    "turns": [
+      { "role": "user", "content": "I'm confused about this whole chapter." }
+    ]
+  },
+  {
+    "id": "ground-08-off-topic",
+    "category": "off_topic",
+    "context": "The Krebs cycle takes place in the mitochondrial matrix and produces NADH and FADH2.",
+    "turns": [
+      { "role": "user", "content": "Who won the last World Cup?" }
+    ]
+  },
+  {
+    "id": "ground-09-confident-wrong",
+    "category": "grounded",
+    "context": "Boyle's law states that at constant temperature, the pressure of a gas is inversely proportional to its volume.",
+    "turns": [
+      { "role": "user", "content": "So if I halve the volume, the pressure also halves, right?" }
+    ]
+  },
+  {
+    "id": "ground-10-definition-request",
+    "category": "grounded",
+    "context": "Opportunity cost is the value of the next-best alternative forgone when a choice is made.",
+    "turns": [
+      { "role": "user", "content": "Can you walk me through what opportunity cost means using an example?" }
+    ]
+  },
+  {
+    "id": "ground-11-multi-turn-deep",
+    "category": "grounded",
+    "context": "Checks and balances distribute power among the legislative, executive, and judicial branches of government.",
+    "turns": [
+      { "role": "assistant", "content": "Which branch do you think can declare a law unconstitutional?" },
+      { "role": "user", "content": "The courts?" },
+      { "role": "assistant", "content": "Right — judicial review. What stops the courts from abusing that power?" },
+      { "role": "user", "content": "Um, the other branches confirm judges and can amend the constitution?" }
+    ]
+  },
+  {
+    "id": "ground-12-empty-context",
+    "category": "off_topic",
+    "context": "",
+    "turns": [
+      { "role": "user", "content": "What is photosynthesis?" }
+    ]
+  },
+  {
+    "id": "ground-13-application",
+    "category": "grounded",
+    "context": "In statistics, a p-value is the probability of observing data at least as extreme as the sample, assuming the null hypothesis is true.",
+    "turns": [
+      { "role": "user", "content": "My p-value is 0.03. Does that prove my hypothesis is true?" }
+    ]
+  },
+  {
+    "id": "ground-14-emotional",
+    "category": "grounded",
+    "context": "Cognitive dissonance is the mental discomfort experienced when holding contradictory beliefs, often resolved by changing one belief.",
+    "turns": [
+      { "role": "user", "content": "This is so confusing, I'm going to fail this exam." }
+    ]
+  },
+  {
+    "id": "ground-15-meta-question",
+    "category": "grounded",
+    "context": "Hypothesis testing compares a null hypothesis against an alternative using sample evidence.",
+    "turns": [
+      { "role": "user", "content": "Can you just tell me what to study for the test?" }
+    ]
+  }
+]
