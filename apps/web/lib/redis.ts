@@ -1,5 +1,5 @@
 import IORedis from 'ioredis';
-import { logDocumentError, logDocumentEvent } from './document-logger';
+import { logDocument } from './logger';
 import { loadEnvFiles } from './load-env';
 
 function getRedisUrl() {
@@ -42,23 +42,23 @@ export function createRedisConnection() {
     });
 
     connection.on('connect', () => {
-        logDocumentEvent('redis', 'connect');
+        logDocument.event('redis', 'connect');
     });
 
     connection.on('ready', () => {
-        logDocumentEvent('redis', 'ready');
+        logDocument.event('redis', 'ready');
     });
 
     connection.on('error', (err) => {
-        logDocumentError('redis', 'connection error', err);
+        logDocument.error('redis', 'connection error', err);
     });
 
     connection.on('close', () => {
-        logDocumentEvent('redis', 'connection closed');
+        logDocument.event('redis', 'connection closed');
     });
 
     connection.on('reconnecting', (delay: number) => {
-        logDocumentEvent('redis', 'reconnecting', { delay });
+        logDocument.event('redis', 'reconnecting', { delay });
     });
 
     return connection;

@@ -1,4 +1,4 @@
-import { logSessionError, logSessionEvent } from './session-logger';
+import { logSession } from './logger';
 
 type SupabaseError = { message: string };
 
@@ -23,19 +23,19 @@ export type CreateSessionDeps = {
 
 export async function handleSessionCreate(req: Request, deps: CreateSessionDeps) {
     const startedAt = Date.now();
-    logSessionEvent('create', 'request received');
+    logSession.event('create', 'request received');
 
     let body: unknown;
     try {
         body = await req.json();
     } catch {
-        logSessionEvent('create', 'invalid JSON body');
+        logSession.event('create', 'invalid JSON body');
         return Response.json({ message: 'Invalid request body' }, { status: 400 });
     }
 
     const documentIds = (body as Record<string, unknown>)?.documentIds;
     if (!Array.isArray(documentIds) || documentIds.length === 0) {
-        logSessionEvent('create', 'missing or empty documentIds');
+        logSession.event('create', 'missing or empty documentIds');
         return Response.json(
             { message: 'documentIds must be a non-empty array' },
             { status: 400 },
@@ -44,7 +44,7 @@ export async function handleSessionCreate(req: Request, deps: CreateSessionDeps)
 
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!documentIds.every((id) => typeof id === 'string' && UUID_RE.test(id))) {
-        logSessionEvent('create', 'invalid documentIds format');
+        logSession.event('create', 'invalid documentIds format');
         return Response.json(
             { message: 'documentIds must be valid UUIDs' },
             { status: 400 },
@@ -58,7 +58,7 @@ export async function handleSessionCreate(req: Request, deps: CreateSessionDeps)
     } = await supabase.auth.getUser();
 
     if (authError || !user) {
-        logSessionEvent('create', 'unauthorized request', {
+        logSession.event('create', 'unauthorized request', {
             hasAuthError: Boolean(authError),
             hasUser: Boolean(user),
         });
@@ -67,7 +67,7 @@ export async function handleSessionCreate(req: Request, deps: CreateSessionDeps)
 
     const sessionId = deps.generateSessionId();
 
-    logSessionEvent('create', 'creating session', {
+    logSession.event('create', 'creating session', {
         sessionId,
         userId: user.id,
         documentCount: documentIds.length,
@@ -80,7 +80,7 @@ export async function handleSessionCreate(req: Request, deps: CreateSessionDeps)
     });
 
     if (insertError) {
-        logSessionError('create', 'session insert failed', insertError, {
+        logSession.error('create', 'session insert failed', insertError, {
             sessionId,
             userId: user.id,
             elapsedMs: Date.now() - startedAt,
@@ -88,7 +88,7 @@ export async function handleSessionCreate(req: Request, deps: CreateSessionDeps)
         return Response.json({ message: insertError.message }, { status: 500 });
     }
 
-    logSessionEvent('create', 'session created', {
+    logSession.event('create', 'session created', {
         sessionId,
         userId: user.id,
         documentCount: documentIds.length,

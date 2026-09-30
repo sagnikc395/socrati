@@ -1,10 +1,8 @@
-import { readFile } from "node:fs/promises";
 import { extractText } from "unpdf";
 
 export interface ParsedDocument {
   text: string;
   headings: string[];
-  pageCount: number;
 }
 
 function cleanText(raw: string): string {
@@ -39,27 +37,6 @@ function extractHeadings(text: string): string[] {
   return headings;
 }
 
-export async function parsePDF(filePath: string): Promise<ParsedDocument> {
-  const buffer = await readFile(filePath);
-  const { text: rawText } = await extractText(new Uint8Array(buffer), { mergePages: true });
-
-  if (!rawText || rawText.trim().length === 0) {
-    throw new Error(
-      "No text found in PDF. It might be a scanned/image-only PDF. " +
-        "Please upload a text-based version."
-    );
-  }
-
-  const cleanedText = cleanText(rawText);
-  const headings = extractHeadings(cleanedText);
-
-  return {
-    text: cleanedText,
-    headings,
-    pageCount: 0,
-  };
-}
-
 export async function parsePDFFromBuffer(
   buffer: Buffer
 ): Promise<ParsedDocument> {
@@ -78,6 +55,5 @@ export async function parsePDFFromBuffer(
   return {
     text: cleanedText,
     headings,
-    pageCount: 0,
   };
 }

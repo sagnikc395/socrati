@@ -1,14 +1,11 @@
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
+import type { ParsedDocument } from "./parser";
+
+export type { ParsedDocument };
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-export interface ParsedDocument {
-    text: string;
-    headings: string[];   // section headings detected by the parser
-    pageCount: number;
-}
 
 export interface Chunk {
     content: string;

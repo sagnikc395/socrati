@@ -1,5 +1,5 @@
-import { createClient } from '@supabase/supabase-js';
-import { loadEnvFiles } from './load-env';
+import { getAnonSupabaseClient } from './supabase/api';
+import { callGroqJson } from './groq';
 import { z } from 'zod';
 
 // ── Zod schemas ────────────────────────────────────────────────────────────────
@@ -34,21 +34,6 @@ export type QuizRow = {
     created_at: string;
 };
 
-// ── Supabase client ────────────────────────────────────────────────────────────
-
-function getSupabaseClient(accessToken?: string) {
-    loadEnvFiles();
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-    return createClient(url, anonKey, {
-        auth: { persistSession: false, autoRefreshToken: false },
-        ...(accessToken && {
-            global: { headers: { Authorization: `Bearer ${accessToken}` } },
-        }),
-    });
-}
-
 // ── Quiz generation ────────────────────────────────────────────────────────────
 
 export async function generateQuiz({
@@ -62,8 +47,7 @@ export async function generateQuiz({
     questionCount: 5 | 10 | 20;
     accessToken: string;
 }): Promise<{ quizId: string; questions: QuizQuestionRow[] }> {
-    loadEnvFiles();
-    const supabase = getSupabaseClient(accessToken);
+    const supabase = getAnonSupabaseClient(accessToken);
 
     // 1. Fetch diverse chunks from the document
     const { data: chunks, error: chunkError } = await supabase
@@ -120,36 +104,10 @@ Respond ONLY with a JSON object in this exact format, no markdown, no extra text
 STUDY MATERIAL:
 ${contextText}`;
 
-    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-        },
-        body: JSON.stringify({
-            model: 'llama-3.1-8b-instant',
-            messages: [{ role: 'user', content: prompt }],
-            temperature: 0.4,
-            max_tokens: 5000,
-        }),
-    });
-
-    if (!groqRes.ok) {
-        const err = await groqRes.text();
-        throw new Error(`Groq API error: ${err}`);
-    }
-
-    const groqData = await groqRes.json();
-    const rawText = groqData.choices?.[0]?.message?.content ?? '';
-
-    // 3. Parse and validate with Zod
-    let parsed: z.infer<typeof QuizResponseSchema>;
-    try {
-        const clean = rawText.replace(/```json|```/g, '').trim();
-        parsed = QuizResponseSchema.parse(JSON.parse(clean));
-    } catch {
-        throw new Error(`Quiz generation returned invalid JSON. Raw: ${rawText.slice(0, 300)}`);
-    }
+    // 2. Call Groq Llama 3 8B and validate with Zod
+    const parsed = QuizResponseSchema.parse(
+        await callGroqJson({ prompt, temperature: 0.4, maxTokens: 5000 }),
+    );
 
     const questions = parsed.questions.slice(0, questionCount);
 
@@ -213,7 +171,7 @@ export async function submitQuiz({
         user_answer: string;
     }[];
 }> {
-    const supabase = getSupabaseClient(accessToken);
+    const supabase = getAnonSupabaseClient(accessToken);
 
     const { data: questions, error: fetchErr } = await supabase
         .from('quiz_questions')

@@ -1,13 +1,12 @@
 import { Worker } from 'bullmq';
 import { chunkDocument } from './chunker';
-import { logDocumentError, logDocumentEvent } from './document-logger';
-import { embedChunksStrict } from './embedder';
+import { logDocument } from './logger';
+import { embedChunks } from './embedder';
 import { loadEnvFiles } from './load-env';
 import { parsePDFFromBuffer } from './parser';
 import type { DocumentJobData } from './queue';
 import { createRedisConnection } from './redis';
 import { saveChunksForUser, updateParseStatus } from './repository';
-import { notifyDocumentComplete } from './waiters';
 
 loadEnvFiles();
 
@@ -17,7 +16,7 @@ const worker = new Worker<DocumentJobData>(
         const { documentId, fileBase64, userAccessToken } = job.data;
         const startedAt = Date.now();
 
-        logDocumentEvent('worker', 'job started', {
+        logDocument.event('worker', 'job started', {
             documentId,
             jobId: job.id,
             attempt: job.attemptsMade + 1,
@@ -26,18 +25,18 @@ const worker = new Worker<DocumentJobData>(
             base64Length: fileBase64.length,
         });
 
-        logDocumentEvent('worker', 'marking processing', { documentId, jobId: job.id });
+        logDocument.event('worker', 'marking processing', { documentId, jobId: job.id });
         await updateParseStatus(documentId, 'processing', undefined, userAccessToken);
 
         const buffer = Buffer.from(fileBase64, 'base64');
-        logDocumentEvent('worker', 'file decoded', {
+        logDocument.event('worker', 'file decoded', {
             documentId,
             jobId: job.id,
             bufferBytes: buffer.byteLength,
         });
 
         const doc = await parsePDFFromBuffer(buffer);
-        logDocumentEvent('worker', 'pdf parsed', {
+        logDocument.event('worker', 'pdf parsed', {
             documentId,
             jobId: job.id,
             textLength: doc.text.length,
@@ -46,15 +45,15 @@ const worker = new Worker<DocumentJobData>(
         });
 
         const chunks = await chunkDocument(doc);
-        logDocumentEvent('worker', 'document chunked', {
+        logDocument.event('worker', 'document chunked', {
             documentId,
             jobId: job.id,
             chunkCount: chunks.length,
             elapsedMs: Date.now() - startedAt,
         });
 
-        const embedded = await embedChunksStrict(chunks);
-        logDocumentEvent('worker', 'chunks embedded', {
+        const embedded = await embedChunks(chunks);
+        logDocument.event('worker', 'chunks embedded', {
             documentId,
             jobId: job.id,
             embeddedCount: embedded.length,
@@ -63,7 +62,7 @@ const worker = new Worker<DocumentJobData>(
         });
 
         await saveChunksForUser(documentId, embedded, userAccessToken);
-        logDocumentEvent('worker', 'chunks saved', {
+        logDocument.event('worker', 'chunks saved', {
             documentId,
             jobId: job.id,
             chunkCount: embedded.length,
@@ -71,9 +70,8 @@ const worker = new Worker<DocumentJobData>(
         });
 
         await updateParseStatus(documentId, 'ready', undefined, userAccessToken);
-        notifyDocumentComplete(documentId, 'ready');
 
-        logDocumentEvent('worker', 'job finished', {
+        logDocument.event('worker', 'job finished', {
             documentId,
             jobId: job.id,
             elapsedMs: Date.now() - startedAt,
@@ -91,7 +89,7 @@ const worker = new Worker<DocumentJobData>(
 );
 
 worker.on('active', (job) => {
-    logDocumentEvent('worker', 'job active', {
+    logDocument.event('worker', 'job active', {
         documentId: job.data.documentId,
         jobId: job.id,
         attemptsMade: job.attemptsMade,
@@ -99,7 +97,7 @@ worker.on('active', (job) => {
 });
 
 worker.on('completed', (job, result) => {
-    logDocumentEvent('worker', 'job completed event', {
+    logDocument.event('worker', 'job completed event', {
         documentId: result.documentId,
         jobId: job.id,
         chunkCount: result.chunks,
@@ -108,7 +106,7 @@ worker.on('completed', (job, result) => {
 
 worker.on('failed', async (job, err) => {
     const documentId = job?.data.documentId;
-    logDocumentError('worker', 'job failed event', err, {
+    logDocument.error('worker', 'job failed event', err, {
         documentId,
         jobId: job?.id,
         attemptsMade: job?.attemptsMade,
@@ -125,9 +123,8 @@ worker.on('failed', async (job, err) => {
             err.message,
             job.data.userAccessToken,
         );
-        notifyDocumentComplete(documentId, 'failed', err.message);
     } catch (statusError) {
-        logDocumentError('worker', 'failed to mark document failed', statusError, {
+        logDocument.error('worker', 'failed to mark document failed', statusError, {
             documentId,
             jobId: job.id,
         });
@@ -135,11 +132,11 @@ worker.on('failed', async (job, err) => {
 });
 
 worker.on('error', (err) => {
-    logDocumentError('worker', 'worker error event', err);
+    logDocument.error('worker', 'worker error event', err);
 });
 
 const shutdown = async () => {
-    logDocumentEvent('worker', 'shutdown requested');
+    logDocument.event('worker', 'shutdown requested');
     await worker.close();
     process.exit(0);
 };
@@ -147,7 +144,7 @@ const shutdown = async () => {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
-logDocumentEvent('worker', 'started', {
+logDocument.event('worker', 'started', {
     concurrency: Number(process.env.DOCUMENT_WORKER_CONCURRENCY ?? 3),
     embeddingMock: process.env.EMBEDDING_MOCK === 'true',
 });

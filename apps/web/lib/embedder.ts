@@ -141,19 +141,12 @@ export async function embedChunks(chunks: Chunk[]): Promise<EmbeddedChunk[]> {
         allEmbeddings.push(...embeddings);
     }
 
-    return chunks.map((chunk, i) => ({
+    const embedded = chunks.map((chunk, i) => ({
         ...chunk,
         embedding: allEmbeddings[i]!,
     }));
-}
 
-// ---------------------------------------------------------------------------
-// Strict variant — validates dimensions before anything touches the DB
-// ---------------------------------------------------------------------------
-
-export async function embedChunksStrict(chunks: Chunk[]): Promise<EmbeddedChunk[]> {
-    const embedded = await embedChunks(chunks);
-
+    // Validate dimensions before anything touches the DB
     for (const chunk of embedded) {
         if (chunk.embedding.length !== EMBEDDING_DIM) {
             throw new Error(

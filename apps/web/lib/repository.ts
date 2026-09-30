@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { WebSocketLikeConstructor } from '@supabase/realtime-js';
 import WebSocket from 'ws';
-import { logDocumentError, logDocumentEvent } from './document-logger';
+import { logDocument } from './logger';
 import type { EmbeddedChunk } from './embedder';
 import { loadEnvFiles } from './load-env';
 
@@ -71,43 +71,13 @@ function getUserClient(accessToken: string): SupabaseClient {
 // their own Supabase client without touching module-level singletons.
 
 export function createRepository(clientFactory: RepositoryClientFactory) {
-    async function createDocument(params: {
-        id: string;
-        userId: string;
-        title: string;
-        fileType: string;
-    }) {
-        logDocumentEvent('repository', 'creating document', {
-            documentId: params.id,
-            userId: params.userId,
-        });
-
-        const { error } = await clientFactory().from('documents').insert({
-            document_id: params.id,
-            user_id: params.userId,
-            title: params.title,
-            file_type: params.fileType,
-            parse_status: 'pending',
-        });
-
-        if (error) {
-            logDocumentError('repository', 'create document failed', error, {
-                documentId: params.id,
-                userId: params.userId,
-            });
-            throw new Error(`createDocument failed: ${error.message}`);
-        }
-
-        logDocumentEvent('repository', 'document created', { documentId: params.id });
-    }
-
     async function updateParseStatus(
         documentId: string,
         status: ParseStatus,
         errorMessage?: string,
         accessToken?: string,
     ) {
-        logDocumentEvent('repository', 'updating parse status', {
+        logDocument.event('repository', 'updating parse status', {
             documentId,
             status,
             hasAccessToken: Boolean(accessToken),
@@ -119,24 +89,24 @@ export function createRepository(clientFactory: RepositoryClientFactory) {
             .eq('document_id', documentId);
 
         if (error) {
-            logDocumentError('repository', 'update parse status failed', error, {
+            logDocument.error('repository', 'update parse status failed', error, {
                 documentId,
                 status,
             });
             throw new Error(`updateParseStatus failed: ${error.message}`);
         }
 
-        logDocumentEvent('repository', 'parse status updated', { documentId, status });
+        logDocument.event('repository', 'parse status updated', { documentId, status });
     }
 
     async function saveChunksForUser(
         documentId: string,
         chunks: EmbeddedChunk[],
-        accessToken: string,
+        accessToken?: string,
     ) {
         if (chunks.length === 0) return;
 
-        logDocumentEvent('repository', 'saving chunks for user', {
+        logDocument.event('repository', 'saving chunks for user', {
             documentId,
             chunkCount: chunks.length,
             embeddingDimensions: chunks[0]?.embedding.length ?? 0,
@@ -152,29 +122,25 @@ export function createRepository(clientFactory: RepositoryClientFactory) {
             embedding: JSON.stringify(chunk.embedding),
         }));
 
-        const { error } = await clientFactory(accessToken || undefined)
+        const { error } = await clientFactory(accessToken)
             .from('document_chunks')
             .insert(rows);
 
         if (error) {
-            logDocumentError('repository', 'save chunks failed', error, {
+            logDocument.error('repository', 'save chunks failed', error, {
                 documentId,
                 chunkCount: chunks.length,
             });
             throw new Error(`saveChunks failed: ${error.message}`);
         }
 
-        logDocumentEvent('repository', 'chunks saved for user', {
+        logDocument.event('repository', 'chunks saved for user', {
             documentId,
             chunkCount: chunks.length,
         });
     }
 
-    async function saveChunks(documentId: string, chunks: EmbeddedChunk[]) {
-        return saveChunksForUser(documentId, chunks, '');
-    }
-
-    return { createDocument, updateParseStatus, saveChunksForUser, saveChunks };
+    return { updateParseStatus, saveChunksForUser };
 }
 
 // ── Default module-level exports (use real Supabase clients) ───────────────
@@ -193,7 +159,5 @@ const defaultRepo = createRepository(
         wrapSupabaseClient(accessToken ? getUserClient(accessToken) : getServiceClient()),
 );
 
-export const createDocument = defaultRepo.createDocument;
 export const updateParseStatus = defaultRepo.updateParseStatus;
 export const saveChunksForUser = defaultRepo.saveChunksForUser;
-export const saveChunks = defaultRepo.saveChunks;

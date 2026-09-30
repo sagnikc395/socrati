@@ -1,7 +1,7 @@
-import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
-import { loadEnvFiles } from './load-env';
-import { logMindMapError, logMindMapEvent } from './mindmap-logger';
+import { logMindMap } from './logger';
+import { callGroqJson } from './groq';
+import { getAnonSupabaseClient } from './supabase/api';
 
 const MAX_CHUNKS_TO_FETCH = 60;
 const MAX_SAMPLE_CHUNKS = 12;
@@ -40,19 +40,6 @@ type DocumentChunk = {
     heading?: string | null;
     key_terms?: string[] | null;
 };
-
-function getSupabaseClient(accessToken?: string) {
-    loadEnvFiles();
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-    return createClient(url, anonKey, {
-        auth: { persistSession: false, autoRefreshToken: false },
-        ...(accessToken && {
-            global: { headers: { Authorization: `Bearer ${accessToken}` } },
-        }),
-    });
-}
 
 function normalizeId(value: string, fallback: string) {
     const normalized = value
@@ -244,35 +231,9 @@ ${contextText}`;
 }
 
 async function callGroqMindMap(contextText: string) {
-    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-        },
-        body: JSON.stringify({
-            model: 'llama-3.1-8b-instant',
-            messages: [{ role: 'user', content: promptForMindMap(contextText) }],
-            temperature: 0.2,
-            max_tokens: 3500,
-            response_format: { type: 'json_object' },
-        }),
-    });
-
-    if (!groqRes.ok) {
-        const err = await groqRes.text();
-        throw new Error(`Groq API error: ${err}`);
-    }
-
-    const groqData = await groqRes.json();
-    const rawText = groqData.choices?.[0]?.message?.content ?? '';
-
-    try {
-        const clean = rawText.replace(/```json|```/g, '').trim();
-        return sanitizeGraph(MindMapGraphSchema.parse(JSON.parse(clean)));
-    } catch {
-        throw new Error(`Mind map generation returned invalid JSON. Raw: ${rawText.slice(0, 300)}`);
-    }
+    return sanitizeGraph(
+        MindMapGraphSchema.parse(await callGroqJson({ prompt: promptForMindMap(contextText) })),
+    );
 }
 
 export async function generateMindMap({
@@ -282,11 +243,10 @@ export async function generateMindMap({
     documentId: string;
     accessToken: string;
 }): Promise<MindMapResult> {
-    loadEnvFiles();
     const startedAt = Date.now();
-    const supabase = getSupabaseClient(accessToken);
+    const supabase = getAnonSupabaseClient(accessToken);
 
-    logMindMapEvent('generate', 'fetching document chunks', { documentId });
+    logMindMap.event('generate', 'fetching document chunks', { documentId });
 
     const { data: chunks, error: chunkError } = await supabase
         .from('document_chunks')
@@ -296,12 +256,12 @@ export async function generateMindMap({
         .limit(MAX_CHUNKS_TO_FETCH);
 
     if (chunkError) {
-        logMindMapError('generate', 'chunk fetch failed', chunkError, { documentId });
+        logMindMap.error('generate', 'chunk fetch failed', chunkError, { documentId });
         throw new Error(`Failed to fetch chunks: ${chunkError.message}`);
     }
 
     if (!chunks || chunks.length === 0) {
-        logMindMapEvent('generate', 'no chunks found', { documentId });
+        logMindMap.event('generate', 'no chunks found', { documentId });
         throw new Error('No content found for this document.');
     }
 
@@ -315,7 +275,7 @@ export async function generateMindMap({
 
     if (wordCount < MIN_WORDS_FOR_HIERARCHY) {
         const warning = 'Document is too short to build a reliable hierarchy. Returning key terms instead.';
-        logMindMapEvent('generate', 'returning short-document fallback', {
+        logMindMap.event('generate', 'returning short-document fallback', {
             documentId,
             chunkCount: typedChunks.length,
             wordCount,
@@ -324,7 +284,7 @@ export async function generateMindMap({
     }
 
     const contextText = buildContext(typedChunks);
-    logMindMapEvent('generate', 'calling Groq for topic extraction', {
+    logMindMap.event('generate', 'calling Groq for topic extraction', {
         documentId,
         chunkCount: typedChunks.length,
         sampledChunkCount: sampleChunks(typedChunks).length,
@@ -335,7 +295,7 @@ export async function generateMindMap({
 
     if (!isHierarchical(graph)) {
         const warning = 'Document did not contain enough clear structure for a hierarchy. Returning key terms instead.';
-        logMindMapEvent('generate', 'returning unstructured-document fallback', {
+        logMindMap.event('generate', 'returning unstructured-document fallback', {
             documentId,
             nodeCount: graph.nodes.length,
             edgeCount: graph.edges.length,
@@ -344,7 +304,7 @@ export async function generateMindMap({
         return fallbackGraph(typedChunks, warning);
     }
 
-    logMindMapEvent('generate', 'mind map generated', {
+    logMindMap.event('generate', 'mind map generated', {
         documentId,
         nodeCount: graph.nodes.length,
         edgeCount: graph.edges.length,
