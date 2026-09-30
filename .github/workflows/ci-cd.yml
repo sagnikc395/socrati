@@ -48,7 +48,6 @@ jobs:
       - name: Lint
         run: |
           npm exec --workspace=web -- eslint --quiet
-          npm exec --workspace=docs -- eslint --quiet
           npm exec --workspace=@repo/ui -- eslint . --quiet
 
       - name: Type-check

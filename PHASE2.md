@@ -9,6 +9,8 @@ Yes, extending Socrati makes more sense than starting over. It is already a full
 
 That covers most of the "complete application" list from my earlier message. Voice mode and observability are both reasonable additions, but each needs adjustments. There are also a few things to fix first.
 
+## ORM : Drizzle ORM 
+Instead of using raw sql, better to migrate to a ORM like Drizzle to make it easier and good transitions.
 
 ## Observability: good idea, but Prometheus doesn't fit your deployment as is
 

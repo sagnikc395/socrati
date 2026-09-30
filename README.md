@@ -28,7 +28,6 @@ Supabase provides authentication, relational storage, row-level security, and ve
 ```text
 apps/
   web/      Main Socrati web application
-  docs/     Secondary Next.js docs app scaffold
 
 packages/
   ui/                   Shared React UI primitives

@@ -128,7 +128,6 @@ Pull request checks run:
 
 ```bash
 npm exec --workspace=web -- eslint --quiet
-npm exec --workspace=docs -- eslint --quiet
 npm exec --workspace=@repo/ui -- eslint . --quiet
 npm run check-types
 npm test
