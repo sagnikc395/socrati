@@ -33,6 +33,90 @@ npm run dev            # Next.js on :3000 and the worker
   text, with optional playback in the browser.
 - Persist sessions, messages, documents, quizzes, and document-processing state.
 
+## Architecture
+
+The web app owns every request and writes to Supabase; anything slow —
+document ingestion and voice turns — goes onto a Redis queue and is picked
+up by the worker process.
+
+```mermaid
+flowchart TB
+    subgraph browser["Browser"]
+        UI["Upload · Sessions · Chat · Quiz · Mind map"]
+        REC["MediaRecorder capture"]
+        TTS["speechSynthesis playback"]
+    end
+
+    subgraph web["apps/web — Next.js App Router"]
+        UPLOAD["POST /api/documents/upload"]
+        SSE["GET /api/documents/:id/stream"]
+        CHAT["POST /api/chat"]
+        GEN["POST /api/quiz/generate<br/>POST /api/mindmap/generate"]
+        VOICE["POST /api/voice<br/>GET /api/voice/:id"]
+        RAG["lib/rag · lib/prompts · lib/web-agent"]
+    end
+
+    subgraph redis["Redis"]
+        DQ[["document-processing"]]
+        VQ[["voice-processing"]]
+        RL["chat rate limit"]
+    end
+
+    subgraph worker["BullMQ worker process"]
+        DW["Document worker<br/>parse → chunk → embed"]
+        VW["Voice worker<br/>transcribe → retrieve → answer"]
+    end
+
+    subgraph supabase["Supabase"]
+        AUTH["Auth · RLS"]
+        PG[("Postgres + pgvector<br/>documents · document_chunks · sessions<br/>messages · quizzes · voice_turns · llm_usage")]
+        STORE[("Storage: private voice bucket")]
+    end
+
+    subgraph external["External APIs"]
+        GEMINI["Gemini gemini-embedding-001<br/>1536-d embeddings"]
+        GROQ["Groq chat + Whisper"]
+        TAVILY["Tavily web search"]
+    end
+
+    UI --> UPLOAD
+    UI --> CHAT
+    UI --> GEN
+    UI -.->|"poll"| VOICE
+    REC --> VOICE
+    VOICE -.->|"reply text"| TTS
+    SSE -.->|"progress events"| UI
+
+    UPLOAD -->|"row: pending"| PG
+    UPLOAD -->|"enqueue job"| DQ
+    DQ --> DW
+    DW --> GEMINI
+    DW -->|"chunks + status: ready"| PG
+    SSE --> PG
+
+    CHAT --> RL
+    CHAT --> RAG
+    GEN --> RAG
+    RAG -->|"embed query"| GEMINI
+    RAG -->|"match_document_chunks"| PG
+    RAG -.->|"no matching chunks"| TAVILY
+    CHAT -->|"Socratic prompt, streamed"| GROQ
+    GEN --> GROQ
+    CHAT -->|"user + assistant turns"| PG
+
+    VOICE -->|"audio clip"| STORE
+    VOICE -->|"voice_turns row"| PG
+    VOICE -->|"enqueue job"| VQ
+    VQ --> VW
+    VW -->|"read then delete clip"| STORE
+    VW -->|"Whisper transcription"| GROQ
+    VW --> RAG
+    VW -->|"messages + transcript"| PG
+
+    web --> AUTH
+    worker --> AUTH
+```
+
 ## How it works
 
 Document ingestion starts with an upload, which writes a `documents` row with
