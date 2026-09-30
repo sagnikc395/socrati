@@ -1,6 +1,6 @@
-# Socrati
+# socrati
 
-Socrati is a Socratic AI tutor built on the student's own course material.
+socrati is a Socratic AI tutor built on the student's own course material.
 Students upload their documents, build study sessions from the ones they choose,
 and talk with a tutor that asks guiding questions instead of handing over the
 answer.
