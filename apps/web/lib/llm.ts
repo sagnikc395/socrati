@@ -12,7 +12,12 @@ const CIRCUIT_OPEN_MS = 30_000; // half-open after this long
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type LlmFeature = 'chat' | 'quiz' | 'mindmap';
+export type LlmFeature = 'chat' | 'quiz' | 'mindmap' | 'voice';
+
+export type ChatMessage = {
+    role: 'system' | 'user' | 'assistant';
+    content: string;
+};
 
 export type LlmCallMeta = {
     provider: 'groq' | 'fallback';
@@ -31,9 +36,11 @@ export type LlmDeps = {
     recordUsage?: typeof recordLlmUsage;
 };
 
+type GroqUsage = { prompt_tokens?: number; completion_tokens?: number };
+
 type GroqResponse = {
     choices?: { message?: { content?: string } }[];
-    usage?: { prompt_tokens?: number; completion_tokens?: number };
+    usage?: GroqUsage;
 };
 
 // ── Circuit breaker (module state; one per server process) ───────────────────
@@ -53,12 +60,12 @@ export function resetCircuitBreaker() {
 
 // ── Core call ────────────────────────────────────────────────────────────────
 
-async function callGroqModel(
+async function postGroq(
     model: string,
-    prompt: string,
+    body: Record<string, unknown>,
     opts: { temperature: number; maxTokens: number; signal: AbortSignal },
     fetchFn: typeof fetch,
-): Promise<{ text: string; ttftMs: number; totalMs: number; usage?: GroqResponse['usage'] }> {
+): Promise<{ text: string; ttftMs: number; totalMs: number; usage?: GroqUsage }> {
     const startedAt = Date.now();
 
     const res = await fetchFn(GROQ_URL, {
@@ -69,10 +76,9 @@ async function callGroqModel(
         },
         body: JSON.stringify({
             model,
-            messages: [{ role: 'user', content: prompt }],
             temperature: opts.temperature,
             max_tokens: opts.maxTokens,
-            response_format: { type: 'json_object' },
+            ...body,
         }),
         signal: opts.signal,
     });
@@ -98,19 +104,25 @@ function parseJsonBody(text: string): unknown {
     }
 }
 
-// ── Public API ───────────────────────────────────────────────────────────────
+type CallOptions = {
+    temperature?: number;
+    maxTokens?: number;
+    userId?: string;
+    sessionId?: string;
+};
 
 /**
- * One JSON-mode LLM call with provider fallback: primary model first, then the
- * larger fallback, each bounded by an 8s timeout. A shared circuit breaker
- * skips the primary entirely while it's failing. Writes one llm_usage row.
+ * Shared fallback loop: primary model first, then the larger fallback, each
+ * bounded by an 8s timeout. A shared circuit breaker skips the primary
+ * entirely while it's failing. Writes one llm_usage row.
  */
-export async function callLlmJson(
+async function callWithFallback<T>(
     feature: LlmFeature,
-    prompt: string,
-    callOpts: { temperature?: number; maxTokens?: number; userId?: string; sessionId?: string } = {},
-    deps: LlmDeps = {},
-): Promise<{ parsed: unknown; meta: LlmCallMeta }> {
+    buildBody: (model: string) => Record<string, unknown>,
+    parse: (text: string) => T,
+    callOpts: CallOptions,
+    deps: LlmDeps,
+): Promise<{ value: T; meta: LlmCallMeta }> {
     const fetchFn = deps.fetchFn ?? fetch;
     const now = deps.now ?? Date.now;
     const record = deps.recordUsage ?? recordLlmUsage;
@@ -139,9 +151,9 @@ export async function callLlmJson(
     try {
         for (const attempt of attempts) {
             try {
-                const r = await callGroqModel(
+                const r = await postGroq(
                     attempt.name,
-                    prompt,
+                    buildBody(attempt.name),
                     {
                         temperature: callOpts.temperature ?? 0.2,
                         maxTokens: callOpts.maxTokens ?? 3500,
@@ -149,7 +161,7 @@ export async function callLlmJson(
                     },
                     fetchFn,
                 );
-                const parsed = parseJsonBody(r.text);
+                const value = parse(r.text);
 
                 meta.provider = attempt.provider;
                 meta.model = attempt.name;
@@ -160,7 +172,7 @@ export async function callLlmJson(
                 meta.outputTokens = r.usage?.completion_tokens;
                 consecutiveFailures = 0;
 
-                return { parsed, meta };
+                return { value, meta };
             } catch (err) {
                 lastError = err;
                 logMindMap.error('llm', 'model attempt failed', err, { model: attempt.name, feature });
@@ -190,4 +202,46 @@ export async function callLlmJson(
             fallbackUsed: meta.fallbackUsed,
         });
     }
+}
+
+// ── Public API ───────────────────────────────────────────────────────────────
+
+/** One JSON-mode LLM call (quiz / mindmap / structured features). */
+export async function callLlmJson(
+    feature: LlmFeature,
+    prompt: string,
+    callOpts: CallOptions = {},
+    deps: LlmDeps = {},
+): Promise<{ parsed: unknown; meta: LlmCallMeta }> {
+    const { value, meta } = await callWithFallback(
+        feature,
+        () => ({
+            messages: [{ role: 'user', content: prompt }],
+            response_format: { type: 'json_object' },
+        }),
+        parseJsonBody,
+        callOpts,
+        deps,
+    );
+    return { parsed: value, meta };
+}
+
+/**
+ * One plain-text chat completion (Socratic reply for voice turns). Same
+ * fallback + circuit breaker + usage recording as callLlmJson.
+ */
+export async function callLlmChat(
+    feature: LlmFeature,
+    messages: ChatMessage[],
+    callOpts: CallOptions = {},
+    deps: LlmDeps = {},
+): Promise<{ text: string; meta: LlmCallMeta }> {
+    const { value, meta } = await callWithFallback(
+        feature,
+        () => ({ messages }),
+        (text) => text.trim(),
+        callOpts,
+        deps,
+    );
+    return { text: value, meta };
 }

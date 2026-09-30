@@ -1,29 +1,60 @@
 # Socrati
 
-Socrati is a conversational AI tutor for studying from course materials. Students upload documents, create study sessions around selected files, and interact with a Socratic assistant that guides them with questions instead of giving direct answers.
+Socrati is a Socratic AI tutor built on the student's own course material.
+Students upload their documents, build study sessions from the ones they choose,
+and talk with a tutor that asks guiding questions instead of handing over the
+answer.
 
-The application is built as a TypeScript monorepo with a Next.js web app, shared UI/config packages, Supabase-backed persistence, Redis-backed background jobs, and AI-powered document retrieval.
+The repo is a TypeScript monorepo. `apps/web` is a Next.js App Router
+application and `packages/*` holds the shared UI and config packages. Supabase
+provides authentication, Postgres with pgvector, and file storage. Redis backs
+the job queues and rate limits, and a BullMQ worker runs document ingestion and
+voice processing.
 
-## What It Does
+## Getting started
 
-- Upload and track study documents for an authenticated user.
-- Process uploaded materials through a background pipeline that parses, chunks, embeds, and stores document content.
-- Start study sessions using one or more ready documents.
-- Chat with a Socratic tutor grounded in retrieved document context.
-- Fall back to web search when the uploaded material does not contain enough relevant context.
-- Generate quiz questions from uploaded documents.
-- Generate study mind maps from document chunks.
+Install dependencies, create `.env` and `apps/web/.env.local` from the template
+in [BUILD.md](./BUILD.md), then:
+
+```bash
+npx supabase db push   # apply the migrations
+npm run dev            # Next.js on :3000 and the worker
+```
+
+## What it does
+
+- Upload course documents and watch them move through parsing, chunking, and
+  embedding until they are ready to study.
+- Create study sessions from one or more ready documents.
+- Chat with a tutor grounded in the retrieved chunks, with Tavily web search as
+  a fallback when the uploaded material does not cover the question.
+- Generate quiz questions and mind maps from the documents in a session.
+- Record a spoken question in the browser and get a Socratic reply back as chat
+  text, with optional playback in the browser.
 - Persist sessions, messages, documents, quizzes, and document-processing state.
 
-## Architecture
+## How it works
 
-The main user experience lives in `apps/web`, a Next.js App Router application. It exposes pages for document upload, session creation, chat sessions, quiz generation, mind maps, authentication, and progress.
+Document ingestion starts with an upload, which writes a `documents` row with
+status `pending` and enqueues a BullMQ job. The worker parses the file, splits it
+into chunks, embeds them with Gemini (`gemini-embedding-001`, 1536 dimensions,
+normalized), and saves them for retrieval. It then marks the document `ready`,
+and the browser picks up the transition over an SSE progress stream.
 
-Document ingestion runs through a BullMQ worker. Uploaded files are queued, parsed, chunked, embedded, and saved for retrieval. Chat responses use retrieval-augmented generation over the stored document chunks so tutor responses stay tied to the student's selected materials.
+A chat turn embeds the question and matches it against the session's chunks
+through the `match_document_chunks` RPC. When retrieval comes back empty, the
+request falls back to Tavily web search. Either way the context goes into the
+Socratic system prompt, Groq streams the reply, and both turns are persisted.
 
-Supabase provides authentication, relational storage, row-level security, and vector search support. Redis is used for document-processing queues and worker coordination.
+Voice mode records in the browser with `MediaRecorder` and posts the clip to
+`/api/voice`. The audio goes to a private Storage bucket alongside a
+`voice_turns` row, and a `voice-processing` job transcribes it with Groq Whisper.
+From there the transcript runs through the same retrieval and Socratic prompt as
+a typed question: the worker stores it as a user message, stores the reply as an
+assistant message, and deletes the audio. The client polls `GET /api/voice/:id`
+and can speak the reply with `speechSynthesis`.
 
-## Repository Layout
+## Repository layout
 
 ```text
 apps/
@@ -41,26 +72,25 @@ tests/
   *.test.ts             Node test suite for core app behavior
 ```
 
-## Key Areas
+`apps/web/app` holds the pages (upload, session creation, chat, quiz, mind maps,
+progress, and auth) and the API route handlers. `apps/web/components` holds the
+chat UI, sidebar, and mind map panel, and `apps/web/lib` holds the pipeline
+itself: parsing, chunking, embedding, retrieval, prompts, queues, and the
+workers. The schema, RLS policies, and `match_document_chunks` RPC live in
+`supabase/migrations`, and `tests` covers the handlers and library modules.
 
-- `apps/web/app`: Next.js routes, pages, and API endpoints.
-- `apps/web/components`: Sidebar, chat UI, and mind map UI components.
-- `apps/web/lib`: Auth, document ingestion, retrieval, quiz, mind map, session, queue, and worker logic.
-- `supabase/migrations`: Database tables, indexes, policies, and retrieval RPC definitions.
-- `tests`: Focused tests for auth, uploads, RAG, quizzes, sessions, prompts, progress, and repository behavior.
+## Tech stack
 
-## Tech Stack
+- TypeScript, React, and Next.js App Router on Turborepo
+- Supabase for auth, Postgres with pgvector, and Storage, with Drizzle for the
+  typed schema in `apps/web/lib/db/schema.ts`
+- Redis and BullMQ for background jobs and rate limiting
+- Groq for chat, quiz, mind map, and Whisper transcription
+- Google Gemini for document embeddings
+- Tavily for web search when the documents fall short
 
-- TypeScript
-- Next.js
-- React
-- Turborepo
-- Supabase
-- BullMQ
-- Redis
-- Groq-backed chat and quiz generation
-- Vector retrieval over embedded document chunks
+## Docs
 
-## Operational Docs
-
-Build, database, development, production, and test workflows are documented in [BUILD.md](./BUILD.md).
+Build, database, development, deploy, test, and eval workflows are in
+[BUILD.md](./BUILD.md). Conventions and architecture notes for coding agents are
+in [AGENTS.md](./AGENTS.md).

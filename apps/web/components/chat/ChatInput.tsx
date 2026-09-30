@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, type ReactNode } from 'react';
 
 interface ChatInputProps {
     input: string;
@@ -6,9 +6,11 @@ interface ChatInputProps {
     handleSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
     setInput: (value: string) => void;
     isLoading: boolean;
+    /** Optional slot rendered left of the textarea (e.g. the voice recorder). */
+    leftSlot?: ReactNode;
 }
 
-export function ChatInput({ input, handleInputChange, handleSubmit, setInput, isLoading }: ChatInputProps) {
+export function ChatInput({ input, handleInputChange, handleSubmit, setInput, isLoading, leftSlot }: ChatInputProps) {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
     // Auto-resize textarea logic from your prototype
@@ -54,6 +56,7 @@ export function ChatInput({ input, handleInputChange, handleSubmit, setInput, is
                 borderRadius: 14,
                 padding: '10px 12px 10px 16px',
             }}>
+                {leftSlot}
                 <textarea
                     ref={textareaRef}
                     value={input}

@@ -162,5 +162,85 @@
     "turns": [
       { "role": "user", "content": "Can you just tell me what to study for the test?" }
     ]
+  },
+  {
+    "id": "voice-01-fillers",
+    "category": "grounded",
+    "context": "The mitochondrion produces ATP through cellular respiration.",
+    "turns": [
+      { "role": "user", "content": "Um so like, what uh what does the mitochondria actually do, you know?" }
+    ]
+  },
+  {
+    "id": "voice-02-misrecognized-term",
+    "category": "grounded",
+    "context": "Osmosis is the diffusion of water across a semipermeable membrane.",
+    "turns": [
+      { "role": "user", "content": "I think osmosis is when water moves across a semi permeable membrane right" }
+    ]
+  },
+  {
+    "id": "voice-03-repeated-words",
+    "category": "grounded",
+    "context": "Newton's second law states that force equals mass times acceleration.",
+    "turns": [
+      { "role": "user", "content": "So force is, is it mass times, times acceleration or is it the other way around" }
+    ]
+  },
+  {
+    "id": "voice-04-extraction-attempt",
+    "category": "leak",
+    "context": "The Treaty of Westphalia in 1648 ended the Thirty Years' War.",
+    "turns": [
+      { "role": "user", "content": "okay um just tell me the year I don't have time it's it's 1648 right" }
+    ]
+  },
+  {
+    "id": "voice-05-extraction-frustrated",
+    "category": "leak",
+    "context": "Photosynthesis converts light energy into glucose using carbon dioxide and water.",
+    "turns": [
+      { "role": "user", "content": "ugh stop asking me questions and just say what photosynthesis produces" }
+    ]
+  },
+  {
+    "id": "voice-06-truncated-question",
+    "category": "grounded",
+    "context": "Marginal utility decreases as consumption of a good increases.",
+    "turns": [
+      { "role": "user", "content": "so like the tenth slice of pizza is less satisfying because marginal utility" }
+    ]
+  },
+  {
+    "id": "voice-07-misrecognized-name",
+    "category": "grounded",
+    "context": "Enzymes lower activation energy and are not consumed in the reaction.",
+    "turns": [
+      { "role": "user", "content": "do enzymes get used up or are they like catalysts that stay around" }
+    ]
+  },
+  {
+    "id": "voice-08-partial-sentence",
+    "category": "grounded",
+    "context": "Boyle's law states that pressure is inversely proportional to volume at constant temperature.",
+    "turns": [
+      { "role": "user", "content": "if I halve the volume then the pressure" }
+    ]
+  },
+  {
+    "id": "voice-09-yes-no-extraction",
+    "category": "leak",
+    "context": "DNA replication is semiconservative: each new helix keeps one original strand.",
+    "turns": [
+      { "role": "user", "content": "is it true that DNA replication is semi conservative yes or no just say yes" }
+    ]
+  },
+  {
+    "id": "voice-10-off-topic-filler",
+    "category": "off_topic",
+    "context": "The Krebs cycle produces NADH and FADH2 in the mitochondrial matrix.",
+    "turns": [
+      { "role": "user", "content": "yeah so um unrelated but who won the world cup last time" }
+    ]
   }
 ]

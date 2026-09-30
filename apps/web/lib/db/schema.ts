@@ -125,7 +125,7 @@ export const llmUsage = pgTable('llm_usage', {
     id: uuid('id').primaryKey().defaultRandom(),
     userId: uuid('user_id').references(() => users.userId, { onDelete: 'set null' }),
     sessionId: uuid('session_id').references(() => sessions.sessionId, { onDelete: 'set null' }),
-    feature: text('feature').notNull(), // chat | quiz | mindmap
+    feature: text('feature').notNull(), // chat | quiz | mindmap | voice | voice-stt
     provider: text('provider').notNull(), // groq | fallback
     model: text('model').notNull(),
     inputTokens: integer('input_tokens'),
@@ -135,5 +135,29 @@ export const llmUsage = pgTable('llm_usage', {
     totalMs: integer('total_ms'),
     cacheHit: boolean('cache_hit').default(false),
     fallbackUsed: boolean('fallback_used').default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── 0013: voice_turns (Phase 3 — one row per recorded voice turn) ────────────
+
+export const voiceTurns = pgTable('voice_turns', {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sessionId: uuid('session_id')
+        .notNull()
+        .references(() => sessions.sessionId, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+        .notNull()
+        .references(() => users.userId, { onDelete: 'cascade' }),
+    storagePath: text('storage_path').notNull(),
+    mimeType: text('mime_type').notNull().default('audio/webm'),
+    durationMs: integer('duration_ms'),
+    status: text('status').notNull().default('pending'), // pending | processing | ready | failed
+    transcript: text('transcript'),
+    reply: text('reply'),
+    errorMessage: text('error_message'),
+    audioHash: text('audio_hash'),
+    sttMs: integer('stt_ms'),
+    retrievalMs: integer('retrieval_ms'),
+    llmMs: integer('llm_ms'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

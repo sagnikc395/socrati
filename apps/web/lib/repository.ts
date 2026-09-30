@@ -1,5 +1,5 @@
-import { eq } from 'drizzle-orm';
-import { documentChunks, documents, llmUsage } from './db/schema';
+import { and, eq, isNotNull } from 'drizzle-orm';
+import { documentChunks, documents, llmUsage, messages, voiceTurns } from './db/schema';
 import { getDb } from './db/client';
 import { logDocument } from './logger';
 import type { EmbeddedChunk } from './embedder';
@@ -112,12 +112,66 @@ export async function getEmbeddingsByHash(
     return map;
 }
 
+// ── Phase 3: voice turns ─────────────────────────────────────────────────────
+
+export type VoiceTurnPatch = {
+    status?: string;
+    transcript?: string | null;
+    reply?: string | null;
+    errorMessage?: string | null;
+    sttMs?: number | null;
+    retrievalMs?: number | null;
+    llmMs?: number | null;
+};
+
+export async function updateVoiceTurn(
+    voiceTurnId: string,
+    patch: VoiceTurnPatch,
+    db: ReturnType<typeof getDb> = getDb(),
+) {
+    await db.update(voiceTurns).set(patch).where(eq(voiceTurns.id, voiceTurnId));
+}
+
+/** A prior ready transcript for the same audio bytes — skips re-transcription. */
+export async function findCachedTranscript(
+    userId: string,
+    audioHash: string,
+    db: ReturnType<typeof getDb> = getDb(),
+): Promise<string | null> {
+    const rows = await db
+        .select({ transcript: voiceTurns.transcript })
+        .from(voiceTurns)
+        .where(
+            and(
+                eq(voiceTurns.userId, userId),
+                eq(voiceTurns.audioHash, audioHash),
+                isNotNull(voiceTurns.transcript),
+            ),
+        )
+        .limit(1);
+
+    return rows[0]?.transcript ?? null;
+}
+
+/** Append a chat message from a trusted path (the voice worker). */
+export async function insertMessage(
+    row: { sessionId: string; userId: string; role: 'user' | 'assistant'; content: string },
+    db: ReturnType<typeof getDb> = getDb(),
+) {
+    await db.insert(messages).values({
+        sessionId: row.sessionId,
+        userId: row.userId,
+        role: row.role,
+        content: row.content,
+    });
+}
+
 /** Usage row per LLM call — Phase 2 observability (llm_usage table). */
 export async function recordLlmUsage(
     row: {
         userId?: string | null;
         sessionId?: string | null;
-        feature: 'chat' | 'quiz' | 'mindmap';
+        feature: 'chat' | 'quiz' | 'mindmap' | 'voice' | 'voice-stt';
         provider: string;
         model: string;
         inputTokens?: number | null;

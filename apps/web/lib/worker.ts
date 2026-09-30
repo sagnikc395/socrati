@@ -7,6 +7,7 @@ import { parsePDFFromBuffer } from './parser';
 import type { DocumentJobData } from './queue';
 import { createRedisConnection } from './redis';
 import { getEmbeddingsByHash, saveChunks, updateParseStatus } from './repository';
+import { startVoiceWorker } from './voice-worker';
 
 loadEnvFiles();
 
@@ -143,9 +144,12 @@ worker.on('error', (err) => {
     logDocument.error('worker', 'worker error event', err);
 });
 
+// Phase 3: second Worker in the same process (voice-processing queue).
+const voiceWorker = startVoiceWorker();
+
 const shutdown = async () => {
     logDocument.event('worker', 'shutdown requested');
-    await worker.close();
+    await Promise.all([worker.close(), voiceWorker.close()]);
     process.exit(0);
 };
 

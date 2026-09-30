@@ -2,11 +2,12 @@
 
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, type UIMessage } from 'ai';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { MindMapPanel } from '@/components/mindmap/MindMapPanel';
+import { VoiceRecorder } from '@/components/voice/VoiceRecorder';
 
 type ChatDocument = {
     document_id: string;
@@ -73,6 +74,27 @@ export function ChatContainer({
         );
         setInput('');
     };
+
+    // A voice turn arrives fully formed from the worker — append both sides to
+    // the transcript rather than sending a chat request.
+    const handleVoiceTurn = useCallback(
+        ({ transcript, reply }: { transcript: string; reply: string }) => {
+            setMessages((current) => [
+                ...current,
+                {
+                    id: `voice-user-${crypto.randomUUID()}`,
+                    role: 'user',
+                    parts: [{ type: 'text', text: transcript }],
+                },
+                {
+                    id: `voice-assistant-${crypto.randomUUID()}`,
+                    role: 'assistant',
+                    parts: [{ type: 'text', text: reply }],
+                },
+            ]);
+        },
+        [setMessages],
+    );
 
     return (
         <div style={{
@@ -146,6 +168,14 @@ export function ChatContainer({
                 handleSubmit={handleSubmit}
                 setInput={setInput}
                 isLoading={isLoading}
+                leftSlot={
+                    <VoiceRecorder
+                        sessionId={sessionId}
+                        documentIds={documentIds}
+                        disabled={isLoading}
+                        onTurn={handleVoiceTurn}
+                    />
+                }
             />
             {showMindMap && documents.length > 0 && (
                 <MindMapPanel documents={documents} onClose={() => setShowMindMap(false)} />

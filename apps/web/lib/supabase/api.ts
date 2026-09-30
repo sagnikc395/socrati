@@ -18,3 +18,20 @@ export function getAnonSupabaseClient(accessToken?: string): SupabaseClient {
         }),
     });
 }
+
+/**
+ * Service-role client — bypasses RLS. Worker-only (Storage download/delete and
+ * trusted writes); never expose to a request path that echoes user input.
+ */
+export function getServiceRoleSupabaseClient(): SupabaseClient {
+    loadEnvFiles();
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!serviceRoleKey) {
+        throw new Error('SUPABASE_SERVICE_ROLE_KEY is missing — required by the voice worker.');
+    }
+
+    return createClient(url, serviceRoleKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+    });
+}

@@ -2,16 +2,15 @@
 
 ## Prerequisites
 
-| Tool | Version |
-|------|---------|
-| Node.js | ≥ 20 |
-| npm | ≥ 11 |
+| Tool    | Version |
+| ------- | ------- |
+| Node.js | ≥ 20    |
+| npm     | ≥ 11    |
 
----
+## Environment variables
 
-## Environment Variables
-
-Copy the template below to **both** `.env` (repo root) and `apps/web/.env.local`.
+Copy the template below into `.env` at the repo root and into
+`apps/web/.env.local`.
 
 ```env
 # Redis (Upstash)
@@ -37,10 +36,9 @@ TAVILY_API_KEY="<tavily-api-key>"
 
 # Optional
 # DOCUMENT_WORKER_CONCURRENCY=5
+# VOICE_WORKER_CONCURRENCY=2
 # EMBEDDING_MOCK=true
 ```
-
----
 
 ## Installation
 
@@ -50,9 +48,7 @@ cd socrati
 npm install
 ```
 
----
-
-## Database Setup
+## Database setup
 
 Apply all Supabase migrations using the Supabase CLI:
 
@@ -63,7 +59,7 @@ npx supabase db push
 ### Schema changes (Drizzle)
 
 `apps/web/lib/db/schema.ts` is the typed source of truth for the database.
-Edit it, then generate a migration — don't hand-write `ALTER TABLE`:
+Edit it, then generate the migration from it:
 
 ```bash
 npm run db:generate  # diff schema.ts → new file in supabase/migrations/
@@ -72,8 +68,6 @@ npm run db:studio    # browse data
 ```
 
 Both `db:generate` and `db:push` read `DATABASE_URL` from `apps/web/.env.local`.
-
----
 
 ## Development
 
@@ -92,15 +86,32 @@ npm run dev:next --workspace=web   # Next.js only
 npm run worker --workspace=web     # worker only
 ```
 
----
+### Voice mode
+
+Recording runs through the same worker process as document ingestion
+(`voice-processing` queue). The flow is:
+
+```text
+browser MediaRecorder → POST /api/voice → Storage bucket + voice_turns (pending)
+→ worker: Groq Whisper → retrieveContext → Socratic reply
+→ messages + voice_turns ready → client polls GET /api/voice/:id
+```
+
+- Migration `0013_voice_turns.sql` creates the `voice_turns` table and the
+  private `voice-recordings` Storage bucket with owner-scoped policies.
+- Transcription uses Whisper (`whisper-large-v3-turbo`) through the existing
+  `GROQ_API_KEY`, so voice mode needs no new secrets. The worker needs
+  `SUPABASE_SERVICE_ROLE_KEY` to read and delete audio.
+- Caps: 10 MB and 120 s per clip, an audio mime allowlist, and 10 uploads per
+  minute per user.
+- Raw audio is deleted after transcription. The transcript and reply are what
+  persist.
 
 ## Build
 
 ```bash
 npm run build
 ```
-
----
 
 ## Production
 
@@ -110,17 +121,13 @@ npm run start --workspace=web    # web server
 npm run worker --workspace=web   # worker (run alongside)
 ```
 
----
-
-## Code Quality
+## Code quality
 
 ```bash
 npm run check-types   # type check
-npm run lint          # lint (zero warnings enforced)
+npm run lint          # lint (errors fail; warnings don't)
 npm run format        # format with Prettier
 ```
-
----
 
 ## Tests
 
@@ -133,8 +140,9 @@ Set `EMBEDDING_MOCK=true` to skip real embedding API calls during tests.
 
 ### Socratic eval
 
-The eval scores the tutor on its core promise (ask questions, don't give
-answers) using a Groq LLM judge. It needs a real `GROQ_API_KEY`:
+The eval sends sample questions through the tutor and scores the replies with a
+Groq LLM judge, checking that the tutor asks questions instead of giving
+answers. It needs a real `GROQ_API_KEY`:
 
 ```bash
 npm run eval               # writes eval/last-run.json
@@ -146,8 +154,6 @@ npm run eval:update-baseline  # bless the latest run as the new baseline (review
 `npm run eval:update-baseline` once after install and commit the result.
 
 The committed `.env.test` file provides mock values for CI and local test runs. Do not put real service credentials in `.env.test`; use `.env` and `.env.local` for local development secrets.
-
----
 
 ## CI/CD
 
@@ -162,8 +168,8 @@ npm run check-types
 npm test
 ```
 
-It also runs the Socratic eval (`npm run eval && npm run eval:check`), which
-requires the `GROQ_API_KEY` repository secret and a committed
+The workflow also runs the Socratic eval (`npm run eval && npm run eval:check`).
+That step needs the `GROQ_API_KEY` repository secret and a committed
 `eval/baseline.json`.
 
 `npm test` uses Node's built-in test runner, not Jest. CI lint runs ESLint directly in quiet mode so existing warnings are not treated as deployment blockers, while ESLint errors still fail the check.
