@@ -6,6 +6,9 @@ import { streamText } from 'ai';
 import { createGroq } from '@ai-sdk/groq';
 import { loadEnvFiles } from '@/lib/load-env';
 import { performWebSearch } from '@/lib/web-agent';
+import { logDocument } from '@/lib/logger';
+import { checkRateLimit } from '@/lib/redis';
+import { recordLlmUsage } from '@/lib/repository';
 
 export const runtime = 'nodejs';
 
@@ -23,6 +26,10 @@ type IncomingMessage = {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Bigger model when web results are in play so the hidden tag survives
+const CHAT_MODEL = 'llama-3.1-8b-instant';
+const CHAT_MODEL_WEB = 'llama-3.3-70b-versatile';
+
 function extractText(m: IncomingMessage): string {
     // user messages carry a string content; assistant messages may use
     // parts[] (streamed) or a plain content string (hydrated from the DB)
@@ -38,6 +45,10 @@ function extractText(m: IncomingMessage): string {
 
 export async function POST(req: Request) {
     loadEnvFiles();
+
+    const requestId = req.headers.get('x-request-id') ?? crypto.randomUUID();
+    const startedAt = Date.now();
+    const log = logDocument.bind({ requestId });
 
     let body: ChatRequestBody;
     try {
@@ -72,6 +83,7 @@ export async function POST(req: Request) {
     }
 
     // Extract user JWT from cookies so RLS is enforced in retrieveContext
+    const authStart = Date.now();
     const cookieStore = await cookies();
     const supabase = createServerClient(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -80,14 +92,30 @@ export async function POST(req: Request) {
     );
     const { data: { session } } = await supabase.auth.getSession();
     const accessToken = session?.access_token;
+    const userId = session?.user?.id;
+    const authMs = Date.now() - authStart;
+
+    // Per-user rate limit (30 req/min) — fails open if Redis is down
+    if (userId) {
+        const rl = await checkRateLimit(userId);
+        if (!rl.allowed) {
+            log.event('chat', 'rate limited', { userId, retryAfterSec: rl.retryAfterSec });
+            return Response.json(
+                { error: 'Too many requests. Please slow down.' },
+                { status: 429, headers: { 'Retry-After': String(rl.retryAfterSec) } },
+            );
+        }
+    }
 
     // Retrieve RAG context for the latest user message
     const lastUserMessage = [...rawMessages].reverse().find((m) => m?.role === 'user');
     const lastUserText = lastUserMessage ? extractText(lastUserMessage) : '';
 
+    const retrievalStart = Date.now();
     const context = lastUserText
         ? await retrieveContext(lastUserText, validDocumentIds, accessToken)
         : '';
+    const retrievalMs = Date.now() - retrievalStart;
 
     // If RAG returned nothing, call Tavily directly — no LLM tool calling needed
     let webSearchResults = '';
@@ -96,8 +124,6 @@ export async function POST(req: Request) {
         webSearchResults = await performWebSearch(lastUserText);
         webSearchUsed = true;
     }
-
-    const userId = session?.user?.id;
 
     // Save user message to database
     if (userId && sessionId && lastUserText) {
@@ -108,7 +134,7 @@ export async function POST(req: Request) {
             content: lastUserText,
         });
         if (error) {
-            console.error('[chat] failed to save user message:', error.message);
+            log.error('chat', 'failed to save user message', error);
         }
     }
 
@@ -125,15 +151,16 @@ export async function POST(req: Request) {
         return Response.json({ error: 'Chat is not configured (missing GROQ_API_KEY).' }, { status: 500 });
     }
 
-    // Stream Socratic response from Groq (Llama 3.3 70B)
+    const model = webSearchUsed ? CHAT_MODEL_WEB : CHAT_MODEL;
+
+    // Stream Socratic response from Groq
     const groq = createGroq({ apiKey: process.env.GROQ_API_KEY });
 
     const result = streamText({
-        // Use the larger model if web results are involved to ensure the hidden tag is included
-        model: webSearchUsed ? groq('llama-3.3-70b-versatile') : groq('llama-3.1-8b-instant'),
+        model: groq(model),
         system: buildSystemPrompt(context, webSearchResults || undefined),
         messages: modelMessages,
-        onFinish: async ({ text }) => {
+        onFinish: async ({ text, usage }) => {
             if (userId && sessionId && text) {
                 const { error } = await supabase.from('messages').insert({
                     session_id: sessionId,
@@ -142,9 +169,37 @@ export async function POST(req: Request) {
                     content: text,
                 });
                 if (error) {
-                    console.error('[chat] failed to save assistant message:', error.message);
+                    log.error('chat', 'failed to save assistant message', error);
                 }
             }
+
+            const totalMs = Date.now() - startedAt;
+
+            // One usage row per chat turn (Phase 2 observability)
+            void recordLlmUsage({
+                userId: userId ?? null,
+                sessionId: typeof sessionId === 'string' ? sessionId : null,
+                feature: 'chat',
+                provider: 'groq',
+                model,
+                inputTokens: usage?.promptTokens,
+                outputTokens: usage?.completionTokens,
+                ttftMs: undefined,
+                totalMs,
+            });
+
+            // One structured line per chat turn with the Phase-2 timing fields
+            log.event('chat', 'turn complete', {
+                userId,
+                sessionId,
+                web_fallback: webSearchUsed,
+                llm_model: model,
+                input_tokens: usage?.promptTokens,
+                output_tokens: usage?.completionTokens,
+                auth_ms: authMs,
+                retrieval_ms: retrievalMs,
+                total_ms: totalMs,
+            });
         },
     });
 

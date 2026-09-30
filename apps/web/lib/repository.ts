@@ -1,163 +1,155 @@
-import { createClient } from '@supabase/supabase-js';
-import type { SupabaseClient } from '@supabase/supabase-js';
-import type { WebSocketLikeConstructor } from '@supabase/realtime-js';
-import WebSocket from 'ws';
+import { eq } from 'drizzle-orm';
+import { documentChunks, documents, llmUsage } from './db/schema';
+import { getDb } from './db/client';
 import { logDocument } from './logger';
 import type { EmbeddedChunk } from './embedder';
-import { loadEnvFiles } from './load-env';
 
 // ── Public types ───────────────────────────────────────────────────────────
 
 export type ParseStatus = 'pending' | 'processing' | 'ready' | 'failed';
 
-type DbError = { message: string };
+/**
+ * Data access for trusted server paths (the BullMQ worker). Writes go over a
+ * direct Postgres connection (Drizzle) — RLS does not apply, which matches the
+ * previous service-role behavior. Ownership is established upstream: jobs are
+ * only enqueued by the authenticated upload route.
+ *
+ * User-facing reads (RLS-scoped) stay on Supabase clients with the caller's
+ * JWT — see rag.ts and the route handlers.
+ *
+ * `db` is an explicit parameter (defaults to the pooled singleton) so tests
+ * can stub it.
+ */
 
-type DbTableRef = {
-    insert(
-        rows: Record<string, unknown> | Record<string, unknown>[],
-    ): Promise<{ error: DbError | null }>;
-    update(row: Record<string, unknown>): {
-        eq(col: string, val: string): Promise<{ error: DbError | null }>;
-    };
-};
+export async function updateParseStatus(
+    documentId: string,
+    status: ParseStatus,
+    errorMessage?: string,
+    db: ReturnType<typeof getDb> = getDb(),
+) {
+    logDocument.event('repository', 'updating parse status', { documentId, status });
 
-export type RepositoryClient = {
-    from(table: string): DbTableRef;
-};
-
-export type RepositoryClientFactory = (accessToken?: string) => RepositoryClient;
-
-// ── Supabase client helpers (used by the default factory) ─────────────────
-
-let serviceClient: SupabaseClient | undefined;
-
-const realtimeOptions = {
-    transport: WebSocket as unknown as WebSocketLikeConstructor,
-};
-
-function getSupabaseUrl() {
-    loadEnvFiles();
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    if (!url) throw new Error('NEXT_PUBLIC_SUPABASE_URL is missing.');
-    return url;
-}
-
-function getServiceClient() {
-    loadEnvFiles();
-    if (serviceClient) return serviceClient;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!key) throw new Error('SUPABASE_SERVICE_ROLE_KEY is missing.');
-    serviceClient = createClient(getSupabaseUrl(), key, {
-        auth: { persistSession: false, autoRefreshToken: false },
-        realtime: realtimeOptions,
-    });
-    return serviceClient;
-}
-
-function getUserClient(accessToken: string): SupabaseClient {
-    loadEnvFiles();
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!anonKey) throw new Error('NEXT_PUBLIC_SUPABASE_ANON_KEY is missing.');
-    return createClient(getSupabaseUrl(), anonKey, {
-        auth: { persistSession: false, autoRefreshToken: false },
-        realtime: realtimeOptions,
-        global: { headers: { Authorization: `Bearer ${accessToken}` } },
-    });
-}
-
-// ── Repository factory ─────────────────────────────────────────────────────
-//
-// Accepts an injectable client factory so callers (and tests) can supply
-// their own Supabase client without touching module-level singletons.
-
-export function createRepository(clientFactory: RepositoryClientFactory) {
-    async function updateParseStatus(
-        documentId: string,
-        status: ParseStatus,
-        errorMessage?: string,
-        accessToken?: string,
-    ) {
-        logDocument.event('repository', 'updating parse status', {
+    try {
+        await db
+            .update(documents)
+            .set({ parseStatus: status, errorMessage: errorMessage ?? null })
+            .where(eq(documents.documentId, documentId));
+    } catch (error) {
+        logDocument.error('repository', 'update parse status failed', error, {
             documentId,
             status,
-            hasAccessToken: Boolean(accessToken),
         });
-
-        const { error } = await clientFactory(accessToken)
-            .from('documents')
-            .update({ parse_status: status, error_message: errorMessage ?? null })
-            .eq('document_id', documentId);
-
-        if (error) {
-            logDocument.error('repository', 'update parse status failed', error, {
-                documentId,
-                status,
-            });
-            throw new Error(`updateParseStatus failed: ${error.message}`);
-        }
-
-        logDocument.event('repository', 'parse status updated', { documentId, status });
+        throw new Error(
+            `updateParseStatus failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
     }
 
-    async function saveChunksForUser(
-        documentId: string,
-        chunks: EmbeddedChunk[],
-        accessToken?: string,
-    ) {
-        if (chunks.length === 0) return;
+    logDocument.event('repository', 'parse status updated', { documentId, status });
+}
 
-        logDocument.event('repository', 'saving chunks for user', {
-            documentId,
-            chunkCount: chunks.length,
-            embeddingDimensions: chunks[0]?.embedding.length ?? 0,
-        });
+export async function saveChunks(
+    documentId: string,
+    chunks: EmbeddedChunk[],
+    db: ReturnType<typeof getDb> = getDb(),
+) {
+    if (chunks.length === 0) return;
 
-        const rows = chunks.map((chunk) => ({
-            document_id: documentId,
-            chunk_index: chunk.chunkIndex,
-            content: chunk.content,
-            heading: chunk.heading ?? null,
-            key_terms: chunk.keyTerms,
-            // pgvector requires a JSON string "[v1,v2,...]" — not a raw JS array.
-            embedding: JSON.stringify(chunk.embedding),
-        }));
+    logDocument.event('repository', 'saving chunks', {
+        documentId,
+        chunkCount: chunks.length,
+        embeddingDimensions: chunks[0]?.embedding.length ?? 0,
+    });
 
-        const { error } = await clientFactory(accessToken)
-            .from('document_chunks')
-            .insert(rows);
+    const rows = chunks.map((chunk) => ({
+        documentId,
+        chunkIndex: chunk.chunkIndex,
+        content: chunk.content,
+        heading: chunk.heading ?? null,
+        keyTerms: chunk.keyTerms,
+        // postgres-js serializes number[] into pgvector's text format natively
+        embedding: chunk.embedding,
+        contentHash: chunk.contentHash ?? null,
+    }));
 
-        if (error) {
-            logDocument.error('repository', 'save chunks failed', error, {
-                documentId,
-                chunkCount: chunks.length,
-            });
-            throw new Error(`saveChunks failed: ${error.message}`);
-        }
-
-        logDocument.event('repository', 'chunks saved for user', {
+    try {
+        // Retry-safe: a failed attempt may have partially saved rows; start clean.
+        await db.delete(documentChunks).where(eq(documentChunks.documentId, documentId));
+        await db.insert(documentChunks).values(rows);
+    } catch (error) {
+        logDocument.error('repository', 'save chunks failed', error, {
             documentId,
             chunkCount: chunks.length,
         });
+        throw new Error(
+            `saveChunks failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
     }
 
-    return { updateParseStatus, saveChunksForUser };
+    logDocument.event('repository', 'chunks saved', { documentId, chunkCount: chunks.length });
 }
 
-// ── Default module-level exports (use real Supabase clients) ───────────────
-//
-// Supabase returns PostgrestFilterBuilder (PromiseLike, not Promise), so we
-// wrap the client to match the RepositoryClient interface.
+/** Existing embeddings for a document, keyed by content hash (embedding reuse). */
+export async function getEmbeddingsByHash(
+    documentId: string,
+    db: ReturnType<typeof getDb> = getDb(),
+): Promise<Map<string, number[]>> {
+    const rows = await db
+        .select({ contentHash: documentChunks.contentHash, embedding: documentChunks.embedding })
+        .from(documentChunks)
+        .where(eq(documentChunks.documentId, documentId));
 
-function wrapSupabaseClient(supabase: SupabaseClient): RepositoryClient {
-    return {
-        from: (table) => supabase.from(table) as unknown as ReturnType<RepositoryClient['from']>,
-    };
+    const map = new Map<string, number[]>();
+    for (const row of rows) {
+        if (!row.contentHash || !row.embedding) continue;
+        // pgvector returns "[1,2,3]" text through postgres-js
+        const vector = String(row.embedding)
+            .slice(1, -1)
+            .split(',')
+            .map(Number)
+            .filter((n) => Number.isFinite(n));
+        if (vector.length > 0) map.set(row.contentHash, vector);
+    }
+    return map;
 }
 
-const defaultRepo = createRepository(
-    (accessToken) =>
-        wrapSupabaseClient(accessToken ? getUserClient(accessToken) : getServiceClient()),
-);
-
-export const updateParseStatus = defaultRepo.updateParseStatus;
-export const saveChunksForUser = defaultRepo.saveChunksForUser;
+/** Usage row per LLM call — Phase 2 observability (llm_usage table). */
+export async function recordLlmUsage(
+    row: {
+        userId?: string | null;
+        sessionId?: string | null;
+        feature: 'chat' | 'quiz' | 'mindmap';
+        provider: string;
+        model: string;
+        inputTokens?: number | null;
+        outputTokens?: number | null;
+        costUsd?: string | null;
+        ttftMs?: number | null;
+        totalMs?: number | null;
+        cacheHit?: boolean;
+        fallbackUsed?: boolean;
+    },
+    db?: ReturnType<typeof getDb>,
+) {
+    try {
+        // getDb() inside the try: a missing DATABASE_URL must never break the
+        // request path — observability degrades to a log line.
+        const client = db ?? getDb();
+        await client.insert(llmUsage).values({
+            userId: row.userId ?? null,
+            sessionId: row.sessionId ?? null,
+            feature: row.feature,
+            provider: row.provider,
+            model: row.model,
+            inputTokens: row.inputTokens ?? null,
+            outputTokens: row.outputTokens ?? null,
+            costUsd: row.costUsd ?? null,
+            ttftMs: row.ttftMs ?? null,
+            totalMs: row.totalMs ?? null,
+            cacheHit: row.cacheHit ?? false,
+            fallbackUsed: row.fallbackUsed ?? false,
+        });
+    } catch (error) {
+        // Observability must never break the request path
+        logDocument.error('llm-usage', 'insert failed', error, { feature: row.feature });
+    }
+}

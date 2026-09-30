@@ -39,6 +39,7 @@ export async function POST(req: Request) {
         const result = await generateMindMap({
             documentId: documentId.trim(),
             accessToken: session.access_token,
+            userId: session.user?.id,
         });
 
         return NextResponse.json(result);

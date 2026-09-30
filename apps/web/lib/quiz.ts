@@ -1,5 +1,5 @@
 import { getAnonSupabaseClient } from './supabase/api';
-import { callGroqJson } from './groq';
+import { callLlmJson } from './llm';
 import { z } from 'zod';
 
 // ── Zod schemas ────────────────────────────────────────────────────────────────
@@ -104,12 +104,14 @@ Respond ONLY with a JSON object in this exact format, no markdown, no extra text
 STUDY MATERIAL:
 ${contextText}`;
 
-    // 2. Call Groq Llama 3 8B and validate with Zod
-    const parsed = QuizResponseSchema.parse(
-        await callGroqJson({ prompt, temperature: 0.4, maxTokens: 5000 }),
-    );
-
-    const questions = parsed.questions.slice(0, questionCount);
+    // 2. Call Groq Llama 3 8B (with fallback) and validate with Zod
+    const { parsed } = await callLlmJson('quiz', prompt, {
+        temperature: 0.4,
+        maxTokens: 5000,
+        userId,
+    });
+    const quiz = QuizResponseSchema.parse(parsed);
+    const questions = quiz.questions.slice(0, questionCount);
 
     // 4. Save quiz row
     const { data: quizRow, error: quizError } = await supabase

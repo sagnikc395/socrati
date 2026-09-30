@@ -1,78 +1,87 @@
-import { after, before, describe, it } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-    createRepository,
-    type RepositoryClient,
-    type RepositoryClientFactory,
-} from '../apps/web/lib/repository';
+import { getTableName } from 'drizzle-orm';
+import { updateParseStatus, saveChunks, getEmbeddingsByHash } from '../apps/web/lib/repository';
 import type { EmbeddedChunk } from '../apps/web/lib/embedder';
 
 // ── Console suppression ────────────────────────────────────────────────────
 
 const originalConsole = { log: console.log, error: console.error };
 
-before(() => {
-    console.log = () => {};
-    console.error = () => {};
-});
+// Minimal Drizzle-shaped stub: records calls, returns chainable builders.
+type Call = { table: string; op: string; args: unknown };
 
-after(() => {
-    console.log = originalConsole.log;
-    console.error = originalConsole.error;
-});
+function createMockDb(options: {
+    insertError?: Error | null;
+    updateError?: Error | null;
+    selectError?: Error | null;
+    existingRows?: { contentHash: string | null; embedding: string | null }[];
+} = {}) {
+    const calls: Call[] = [];
 
-// ── Mock factory helpers ───────────────────────────────────────────────────
-
-type InsertedRow = Record<string, unknown>;
-type UpdatedRow = { row: Record<string, unknown>; column: string; value: string };
-
-type TableMockOptions = {
-    insertError?: { message: string } | null;
-    updateError?: { message: string } | null;
-};
-
-function createMockFactory(opts: Record<string, TableMockOptions> = {}): {
-    factory: RepositoryClientFactory;
-    inserts: Record<string, InsertedRow[]>;
-    updates: Record<string, UpdatedRow[]>;
-    capturedTokens: (string | undefined)[];
-} {
-    const inserts: Record<string, InsertedRow[]> = {};
-    const updates: Record<string, UpdatedRow[]> = {};
-    const capturedTokens: (string | undefined)[] = [];
-
-    const factory: RepositoryClientFactory = (accessToken) => {
-        capturedTokens.push(accessToken);
-
-        const client: RepositoryClient = {
-            from(table) {
-                inserts[table] ??= [];
-                updates[table] ??= [];
-
-                const tableOpts = opts[table] ?? {};
-
-                return {
-                    async insert(rows) {
-                        const arr = Array.isArray(rows) ? rows : [rows];
-                        inserts[table]!.push(...arr);
-                        return { error: tableOpts.insertError ?? null };
-                    },
-                    update(row) {
-                        return {
-                            async eq(col, val) {
-                                updates[table]!.push({ row, column: col, value: val });
-                                return { error: tableOpts.updateError ?? null };
-                            },
-                        };
-                    },
-                };
-            },
-        };
-
-        return client;
+    const fail = (error?: Error | null) => {
+        if (error) throw error;
     };
 
-    return { factory, inserts, updates, capturedTokens };
+    const eq = (_col: unknown, _val: unknown) => '__eq__';
+
+    const tableRef = (table: string) => ({
+        set: (row: unknown) => {
+            calls.push({ table, op: 'update', args: row });
+            return {
+                where: async (_w: unknown) => {
+                    calls.push({ table, op: 'update.where', args: _w });
+                    fail(options.updateError);
+                },
+            };
+        },
+        values: (rows: unknown) => {
+            calls.push({ table, op: 'insert', args: rows });
+            return Promise.resolve().then(() => fail(options.insertError));
+        },
+        where: (w: unknown) => {
+            calls.push({ table, op: 'delete.where', args: w });
+            return {
+                returning: async () => {
+                    fail(options.selectError);
+                    return [];
+                },
+            };
+        },
+    });
+
+    const db = {
+        update: (table: object) => {
+            const name = getTableName(table as Parameters<typeof getTableName>[0]);
+            calls.push({ table: name, op: 'update', args: undefined });
+            return tableRef(name);
+        },
+        insert: (table: object) => {
+            const name = getTableName(table as Parameters<typeof getTableName>[0]);
+            calls.push({ table: name, op: 'insert', args: undefined });
+            return tableRef(name);
+        },
+        delete: (table: object) => {
+            const name = getTableName(table as Parameters<typeof getTableName>[0]);
+            calls.push({ table: name, op: 'delete', args: undefined });
+            return {
+                where: async (w: unknown) => {
+                    calls.push({ table: name, op: 'delete.where', args: w });
+                },
+            };
+        },
+        select: (fields: unknown) => ({
+            from: (_table: unknown) => ({
+                where: async () => {
+                    calls.push({ table: 'document_chunks', op: 'select', args: fields });
+                    if (options.selectError) throw options.selectError;
+                    return options.existingRows ?? [];
+                },
+            }),
+        }),
+    } as unknown as Parameters<typeof updateParseStatus>[3];
+
+    return { db, calls };
 }
 
 function makeChunk(index: number, embeddingSize = 3): EmbeddedChunk {
@@ -89,129 +98,95 @@ function makeChunk(index: number, embeddingSize = 3): EmbeddedChunk {
 
 describe('repository.updateParseStatus', () => {
     it('updates parse_status on the documents table', async () => {
-        const { factory, updates } = createMockFactory();
-        const repo = createRepository(factory);
+        const { db, calls } = createMockDb();
 
-        await repo.updateParseStatus('doc-1', 'ready');
+        await updateParseStatus('doc-1', 'ready', undefined, db);
 
-        assert.equal(updates['documents']?.length, 1);
-        assert.deepEqual(updates['documents']![0], {
-            row: { parse_status: 'ready', error_message: null },
-            column: 'document_id',
-            value: 'doc-1',
-        });
+        const update = calls.find((c) => c.op === 'update' && c.args);
+        assert.ok(update);
+        assert.deepEqual(update.args, { parseStatus: 'ready', errorMessage: null });
+        assert.equal(update.table, 'documents');
     });
 
-    it('includes error_message when provided', async () => {
-        const { factory, updates } = createMockFactory();
-        const repo = createRepository(factory);
+    it('records an error message when marking failed', async () => {
+        const { db, calls } = createMockDb();
 
-        await repo.updateParseStatus('doc-2', 'failed', 'embedding API timeout');
+        await updateParseStatus('doc-2', 'failed', 'embedding API timeout', db);
 
-        assert.deepEqual(updates['documents']![0]!.row, {
-            parse_status: 'failed',
-            error_message: 'embedding API timeout',
-        });
+        const update = calls.find((c) => c.op === 'update' && c.args);
+        assert.deepEqual(update?.args, { parseStatus: 'failed', errorMessage: 'embedding API timeout' });
     });
 
-    it('passes the access token to the client factory', async () => {
-        const { factory, capturedTokens } = createMockFactory();
-        const repo = createRepository(factory);
-
-        await repo.updateParseStatus('doc-3', 'processing', undefined, 'user-token-abc');
-
-        assert.equal(capturedTokens[0], 'user-token-abc');
-    });
-
-    it('throws when the database returns an error', async () => {
-        const { factory } = createMockFactory({
-            documents: { updateError: { message: 'connection refused' } },
-        });
-        const repo = createRepository(factory);
+    it('wraps database errors with the operation name', async () => {
+        const { db } = createMockDb({ updateError: new Error('connection refused') });
 
         await assert.rejects(
-            () => repo.updateParseStatus('doc-4', 'ready'),
+            () => updateParseStatus('doc-3', 'ready', undefined, db),
             /updateParseStatus failed: connection refused/,
         );
     });
 });
 
-// ── saveChunksForUser ──────────────────────────────────────────────────────
+// ── saveChunks ─────────────────────────────────────────────────────────────
 
-describe('repository.saveChunksForUser', () => {
-    it('inserts all chunks into document_chunks', async () => {
-        const { factory, inserts } = createMockFactory();
-        const repo = createRepository(factory);
+describe('repository.saveChunks', () => {
+    it('deletes stale rows then inserts one row per chunk with content hash', async () => {
+        const { db, calls } = createMockDb();
 
-        const chunks = [makeChunk(0), makeChunk(1)];
-        await repo.saveChunksForUser('doc-1', chunks, 'user-token');
+        await saveChunks('doc-1', [makeChunk(0)], db);
 
-        assert.equal(inserts['document_chunks']?.length, 2);
+        assert.ok(calls.some((c) => c.table === 'document_chunks' && c.op === 'delete.where'));
+        const insert = calls.find((c) => c.op === 'insert' && c.args);
+        assert.ok(insert);
+        const rows = insert.args as Record<string, unknown>[];
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0]!.documentId, 'doc-1');
+        assert.equal(rows[0]!.chunkIndex, 0);
+        assert.equal(rows[0]!.contentHash, null);
+        // postgres-js serializes number[] into pgvector's text format
+        assert.ok(Array.isArray(rows[0]!.embedding));
     });
 
-    it('serialises embeddings as a JSON string for pgvector', async () => {
-        const { factory, inserts } = createMockFactory();
-        const repo = createRepository(factory);
+    it('is a no-op for an empty chunk list', async () => {
+        const { db, calls } = createMockDb();
 
-        const chunks = [makeChunk(0, 3)];
-        await repo.saveChunksForUser('doc-1', chunks, 'user-token');
+        await saveChunks('doc-1', [], db);
 
-        const row = inserts['document_chunks']![0]!;
-        assert.equal(typeof row['embedding'], 'string');
-        assert.equal(row['embedding'], '[0.1,0.2,0.30000000000000004]');
+        assert.equal(calls.length, 0);
     });
 
-    it('maps chunk fields to the correct column names', async () => {
-        const { factory, inserts } = createMockFactory();
-        const repo = createRepository(factory);
-
-        await repo.saveChunksForUser('doc-99', [makeChunk(0)], 'token');
-
-        const row = inserts['document_chunks']![0]!;
-        assert.equal(row['document_id'], 'doc-99');
-        assert.equal(row['chunk_index'], 0);
-        assert.equal(row['content'], 'chunk content 0');
-        assert.equal(row['heading'], 'Introduction');
-        assert.deepEqual(row['key_terms'], ['term1', 'term2']);
-    });
-
-    it('stores null heading when chunk has no heading', async () => {
-        const { factory, inserts } = createMockFactory();
-        const repo = createRepository(factory);
-
-        await repo.saveChunksForUser('doc-1', [makeChunk(1)], 'token');
-
-        assert.equal(inserts['document_chunks']![0]!['heading'], null);
-    });
-
-    it('is a no-op when the chunk list is empty', async () => {
-        const { factory, inserts, capturedTokens } = createMockFactory();
-        const repo = createRepository(factory);
-
-        await repo.saveChunksForUser('doc-1', [], 'token');
-
-        assert.equal(inserts['document_chunks']?.length ?? 0, 0);
-        assert.equal(capturedTokens.length, 0);
-    });
-
-    it('passes the access token to the client factory', async () => {
-        const { factory, capturedTokens } = createMockFactory();
-        const repo = createRepository(factory);
-
-        await repo.saveChunksForUser('doc-1', [makeChunk(0)], 'my-user-token');
-
-        assert.equal(capturedTokens[0], 'my-user-token');
-    });
-
-    it('throws when the database returns an error', async () => {
-        const { factory } = createMockFactory({
-            document_chunks: { insertError: { message: 'vector dimension mismatch' } },
-        });
-        const repo = createRepository(factory);
+    it('wraps insert errors with the operation name', async () => {
+        const { db } = createMockDb({ insertError: new Error('vector dimension mismatch') });
 
         await assert.rejects(
-            () => repo.saveChunksForUser('doc-1', [makeChunk(0)], 'token'),
+            () => saveChunks('doc-1', [makeChunk(0)], db),
             /saveChunks failed: vector dimension mismatch/,
         );
+    });
+});
+
+// ── getEmbeddingsByHash ────────────────────────────────────────────────────
+
+describe('repository.getEmbeddingsByHash', () => {
+    it('parses pgvector text "[a,b,c]" into a hash-keyed vector map', async () => {
+        const { db } = createMockDb({
+            existingRows: [
+                { contentHash: 'abc', embedding: '[0.1,0.2,0.3]' },
+                { contentHash: null, embedding: '[0.4,0.5,0.6]' }, // skipped
+            ],
+        });
+
+        const map = await getEmbeddingsByHash('doc-1', db);
+
+        assert.deepEqual(map.get('abc'), [0.1, 0.2, 0.3]);
+        assert.equal(map.size, 1);
+    });
+
+    it('returns an empty map when the document has no chunks', async () => {
+        const { db } = createMockDb({ existingRows: [] });
+
+        const map = await getEmbeddingsByHash('doc-1', db);
+
+        assert.equal(map.size, 0);
     });
 });

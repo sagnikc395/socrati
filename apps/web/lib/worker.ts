@@ -1,20 +1,22 @@
 import { Worker } from 'bullmq';
 import { chunkDocument } from './chunker';
 import { logDocument } from './logger';
-import { embedChunks } from './embedder';
+import { embedChunksWithReuse } from './embedder';
 import { loadEnvFiles } from './load-env';
 import { parsePDFFromBuffer } from './parser';
 import type { DocumentJobData } from './queue';
 import { createRedisConnection } from './redis';
-import { saveChunksForUser, updateParseStatus } from './repository';
+import { getEmbeddingsByHash, saveChunks, updateParseStatus } from './repository';
 
 loadEnvFiles();
 
 const worker = new Worker<DocumentJobData>(
     'document-processing',
     async (job) => {
-        const { documentId, fileBase64, userAccessToken } = job.data;
+        const { documentId, fileBase64 } = job.data;
         const startedAt = Date.now();
+        let parseDoneAt = startedAt;
+        let embedDoneAt = startedAt;
 
         logDocument.event('worker', 'job started', {
             documentId,
@@ -26,7 +28,7 @@ const worker = new Worker<DocumentJobData>(
         });
 
         logDocument.event('worker', 'marking processing', { documentId, jobId: job.id });
-        await updateParseStatus(documentId, 'processing', undefined, userAccessToken);
+        await updateParseStatus(documentId, 'processing');
 
         const buffer = Buffer.from(fileBase64, 'base64');
         logDocument.event('worker', 'file decoded', {
@@ -36,6 +38,7 @@ const worker = new Worker<DocumentJobData>(
         });
 
         const doc = await parsePDFFromBuffer(buffer);
+        parseDoneAt = Date.now();
         logDocument.event('worker', 'pdf parsed', {
             documentId,
             jobId: job.id,
@@ -52,16 +55,21 @@ const worker = new Worker<DocumentJobData>(
             elapsedMs: Date.now() - startedAt,
         });
 
-        const embedded = await embedChunks(chunks);
+        // Embedding reuse: chunks whose sha256 content hash matches an existing
+        // row keep the stored embedding — re-uploads make 0 embedding calls.
+        const cached = await getEmbeddingsByHash(documentId);
+        const { embedded, reused } = await embedChunksWithReuse(chunks, cached);
         logDocument.event('worker', 'chunks embedded', {
             documentId,
             jobId: job.id,
             embeddedCount: embedded.length,
+            reusedCount: reused,
             embeddingDimensions: embedded[0]?.embedding.length ?? 0,
             elapsedMs: Date.now() - startedAt,
         });
 
-        await saveChunksForUser(documentId, embedded, userAccessToken);
+        await saveChunks(documentId, embedded);
+        embedDoneAt = Date.now();
         logDocument.event('worker', 'chunks saved', {
             documentId,
             jobId: job.id,
@@ -69,12 +77,17 @@ const worker = new Worker<DocumentJobData>(
             elapsedMs: Date.now() - startedAt,
         });
 
-        await updateParseStatus(documentId, 'ready', undefined, userAccessToken);
+        await updateParseStatus(documentId, 'ready');
 
-        logDocument.event('worker', 'job finished', {
-            documentId,
+        logDocument.event('worker', 'ingestion summary', {
             jobId: job.id,
-            elapsedMs: Date.now() - startedAt,
+            documentId,
+            file_type: job.data.fileType,
+            upload_to_ready_ms: Date.now() - startedAt,
+            parse_ms: parseDoneAt - startedAt,
+            embed_ms: embedDoneAt - parseDoneAt,
+            chunk_count: embedded.length,
+            embeddings_reused: reused,
         });
 
         return {
@@ -117,12 +130,7 @@ worker.on('failed', async (job, err) => {
     if (job.attemptsMade < (job.opts.attempts ?? 1)) return;
 
     try {
-        await updateParseStatus(
-            documentId,
-            'failed',
-            err.message,
-            job.data.userAccessToken,
-        );
+        await updateParseStatus(documentId, 'failed', err.message);
     } catch (statusError) {
         logDocument.error('worker', 'failed to mark document failed', statusError, {
             documentId,

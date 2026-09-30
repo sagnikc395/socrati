@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { logMindMap } from './logger';
-import { callGroqJson } from './groq';
+import { callLlmJson } from './llm';
 import { getAnonSupabaseClient } from './supabase/api';
 
 const MAX_CHUNKS_TO_FETCH = 60;
@@ -230,18 +230,19 @@ DOCUMENT CHUNKS:
 ${contextText}`;
 }
 
-async function callGroqMindMap(contextText: string) {
-    return sanitizeGraph(
-        MindMapGraphSchema.parse(await callGroqJson({ prompt: promptForMindMap(contextText) })),
-    );
+async function callGroqMindMap(contextText: string, userId?: string) {
+    const { parsed } = await callLlmJson('mindmap', promptForMindMap(contextText), { userId });
+    return sanitizeGraph(MindMapGraphSchema.parse(parsed));
 }
 
 export async function generateMindMap({
     documentId,
     accessToken,
+    userId,
 }: {
     documentId: string;
     accessToken: string;
+    userId?: string;
 }): Promise<MindMapResult> {
     const startedAt = Date.now();
     const supabase = getAnonSupabaseClient(accessToken);
@@ -291,7 +292,7 @@ export async function generateMindMap({
         contextChars: contextText.length,
     });
 
-    const graph = await callGroqMindMap(contextText);
+    const graph = await callGroqMindMap(contextText, userId);
 
     if (!isHierarchical(graph)) {
         const warning = 'Document did not contain enough clear structure for a hierarchy. Returning key terms instead.';

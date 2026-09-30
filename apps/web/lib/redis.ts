@@ -63,3 +63,67 @@ export function createRedisConnection() {
 
     return connection;
 }
+
+// ── Rate limiting (Phase 2) ──────────────────────────────────────────────────
+// Sliding window over a Redis sorted set — per user, no new service. Uses the
+// same connection settings as BullMQ but a dedicated lazy client so chat
+// requests don't share state with the queue.
+
+let rateLimitClient: IORedis | undefined;
+
+function getRateLimitClient(): IORedis {
+    rateLimitClient ??= new IORedis(getRedisUrl(), {
+        connectTimeout: 10_000,
+        commandTimeout: 5_000,
+        enableReadyCheck: false,
+        maxRetriesPerRequest: 1,
+    });
+    return rateLimitClient;
+}
+
+export type RateLimitResult = { allowed: boolean; remaining: number; retryAfterSec: number };
+
+/**
+ * Sliding-window rate limit. Returns allowed=false with a retry hint once the
+ * user exceeds `limit` requests in the trailing `windowSec`. Fails open —
+ * a Redis outage must not take chat down.
+ */
+export async function checkRateLimit(
+    userId: string,
+    limit = 30,
+    windowSec = 60,
+    now = Date.now(),
+): Promise<RateLimitResult> {
+    try {
+        const redis = getRateLimitClient();
+        const key = `ratelimit:chat:${userId}`;
+        const windowStartMs = now - windowSec * 1000;
+
+        // One round trip: drop old entries, count window, add this request
+        const pipeline = redis.multi();
+        pipeline.zremrangebyscore(key, '-inf', windowStartMs);
+        pipeline.zcard(key);
+        const results = await pipeline.exec();
+        const count = Number(results?.[1]?.[1] ?? 0);
+
+        if (count >= limit) {
+            // Oldest entry in the window = when the slot frees up
+            const oldest = await redis.zrange(key, 0, 0, 'WITHSCORES');
+            const retryAt = Number(oldest[1] ?? now) + windowSec * 1000;
+            return { allowed: false, remaining: 0, retryAfterSec: Math.max(1, Math.ceil((retryAt - now) / 1000)) };
+        }
+
+        await redis.zadd(key, now, `${now}-${Math.random().toString(36).slice(2, 8)}`);
+        await redis.expire(key, windowSec);
+        return { allowed: true, remaining: limit - count - 1, retryAfterSec: 0 };
+    } catch (err) {
+        logDocument.error('ratelimit', 'check failed — failing open', err, { userId });
+        return { allowed: true, remaining: limit, retryAfterSec: 0 };
+    }
+}
+
+/** Test hook. */
+export async function closeRateLimitClient() {
+    await rateLimitClient?.quit();
+    rateLimitClient = undefined;
+}

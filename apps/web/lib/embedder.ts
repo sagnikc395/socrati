@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Chunk } from "./chunker";
 
 // ---------------------------------------------------------------------------
@@ -6,6 +7,8 @@ import { Chunk } from "./chunker";
 
 export interface EmbeddedChunk extends Chunk {
     embedding: number[];
+    /** sha256 of content — set by embedChunksWithReuse for cache lookups. */
+    contentHash?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -156,6 +159,45 @@ export async function embedChunks(chunks: Chunk[]): Promise<EmbeddedChunk[]> {
     }
 
     return embedded;
+}
+
+// ---------------------------------------------------------------------------
+// Embedding reuse — Phase 2: re-uploads skip re-embedding
+// ---------------------------------------------------------------------------
+
+export function contentHash(text: string): string {
+    return createHash("sha256").update(text).digest("hex");
+}
+
+/**
+ * Embeds only chunks whose sha256 content hash is not already stored for the
+ * document; matched chunks reuse the cached vector. Returns every chunk with
+ * an embedding plus the count reused (for the ingestion log).
+ */
+export async function embedChunksWithReuse(
+    chunks: Chunk[],
+    cachedEmbeddings: Map<string, number[]>,
+): Promise<{ embedded: EmbeddedChunk[]; reused: number }> {
+    if (chunks.length === 0) return { embedded: [], reused: 0 };
+
+    const hashes = chunks.map((c) => contentHash(c.content));
+    const toEmbed: { index: number; chunk: Chunk }[] = [];
+
+    const embedded: EmbeddedChunk[] = chunks.map((chunk, i) => {
+        const cached = cachedEmbeddings.get(hashes[i]!);
+        if (cached) return { ...chunk, embedding: cached, contentHash: hashes[i] };
+        toEmbed.push({ index: i, chunk });
+        return { ...chunk, embedding: [] }; // placeholder, replaced below
+    });
+
+    if (toEmbed.length > 0) {
+        const fresh = await embedChunks(toEmbed.map((t) => t.chunk));
+        fresh.forEach((result, i) => {
+            embedded[toEmbed[i]!.index] = { ...result, contentHash: hashes[toEmbed[i]!.index] };
+        });
+    }
+
+    return { embedded, reused: chunks.length - toEmbed.length };
 }
 
 // ---------------------------------------------------------------------------
