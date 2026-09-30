@@ -2,6 +2,7 @@
   "$schema": "https://turborepo.dev/schema.json",
   "ui": "tui",
   "globalEnv": [
+    "DATABASE_URL",
     "DOCUMENT_WORKER_CONCURRENCY",
     "EMBEDDING_MOCK",
     "GEMINI_API_KEY",

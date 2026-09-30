@@ -14,6 +14,9 @@ node_modules
 # Testing
 coverage
 
+# Eval run artifacts (baseline.json is committed; last-run.json is local)
+eval/last-run.json
+
 # Turbo
 .turbo
 

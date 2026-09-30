@@ -23,6 +23,8 @@ UPSTASH_REDIS_REST_TOKEN="<token>"
 NEXT_PUBLIC_SUPABASE_URL="https://<project>.supabase.co"
 NEXT_PUBLIC_SUPABASE_ANON_KEY="<anon-key>"
 SUPABASE_SERVICE_ROLE_KEY="<service-role-key>"
+# Drizzle / worker writes: Supabase Transaction pooler URL (port 6543)
+DATABASE_URL="postgresql://postgres.<ref>:<password>@<host>:6543/postgres"
 
 # Google OAuth
 OAUTH_CLIENT_ID="<client-id>.apps.googleusercontent.com"
@@ -57,6 +59,19 @@ Apply all Supabase migrations using the Supabase CLI:
 ```bash
 npx supabase db push
 ```
+
+### Schema changes (Drizzle)
+
+`apps/web/lib/db/schema.ts` is the typed source of truth for the database.
+Edit it, then generate a migration — don't hand-write `ALTER TABLE`:
+
+```bash
+npm run db:generate  # diff schema.ts → new file in supabase/migrations/
+npm run db:push      # apply directly to a local dev database
+npm run db:studio    # browse data
+```
+
+Both `db:generate` and `db:push` read `DATABASE_URL` from `apps/web/.env.local`.
 
 ---
 
@@ -116,6 +131,20 @@ npm run test:coverage  # run with coverage
 
 Set `EMBEDDING_MOCK=true` to skip real embedding API calls during tests.
 
+### Socratic eval
+
+The eval scores the tutor on its core promise (ask questions, don't give
+answers) using a Groq LLM judge. It needs a real `GROQ_API_KEY`:
+
+```bash
+npm run eval               # writes eval/last-run.json
+npm run eval:check         # fails if the run regressed vs. eval/baseline.json
+npm run eval:update-baseline  # bless the latest run as the new baseline (review first)
+```
+
+`eval/baseline.json` is committed and gates CI, so run `npm run eval` then
+`npm run eval:update-baseline` once after install and commit the result.
+
 The committed `.env.test` file provides mock values for CI and local test runs. Do not put real service credentials in `.env.test`; use `.env` and `.env.local` for local development secrets.
 
 ---
@@ -132,6 +161,10 @@ npm exec --workspace=@repo/ui -- eslint . --quiet
 npm run check-types
 npm test
 ```
+
+It also runs the Socratic eval (`npm run eval && npm run eval:check`), which
+requires the `GROQ_API_KEY` repository secret and a committed
+`eval/baseline.json`.
 
 `npm test` uses Node's built-in test runner, not Jest. CI lint runs ESLint directly in quiet mode so existing warnings are not treated as deployment blockers, while ESLint errors still fail the check.
 
