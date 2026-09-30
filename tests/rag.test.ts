@@ -23,7 +23,7 @@ describe('RAG Pipeline', () => {
             // Intercept Gemini Embedding API
             if (urlString.includes('generativelanguage.googleapis.com')) {
                 return new Response(JSON.stringify({
-                    embeddings: [{ values: Array(3072).fill(0.1) }]
+                    embeddings: [{ values: Array(1536).fill(0.1) }]
                 }), { status: 200 });
             }
 
@@ -59,7 +59,7 @@ describe('RAG Pipeline', () => {
         mock.method(global, 'fetch', async (url: string | URL | Request) => {
             const urlString = url.toString();
             if (urlString.includes('generativelanguage.googleapis.com')) {
-                return new Response(JSON.stringify({ embeddings: [{ values: Array(3072).fill(0.1) }] }), { status: 200 });
+                return new Response(JSON.stringify({ embeddings: [{ values: Array(1536).fill(0.1) }] }), { status: 200 });
             }
             if (urlString.includes('/rest/v1/rpc/match_document_chunks')) {
                 return new Response(JSON.stringify([]), { status: 200 });
