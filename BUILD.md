@@ -9,8 +9,17 @@
 
 ## Environment variables
 
-Copy the template below into `.env` at the repo root and into
-`apps/web/.env.local`.
+Copy `.env.example` to `.env` at the repo root and fill in the values:
+
+```bash
+cp .env.example .env
+```
+
+`loadEnvFiles()` reads, in order, `<root>/.env`, `<root>/.env.local`,
+`apps/web/.env`, `apps/web/.env.local`; the first value set for a key wins. A
+single root `.env` is enough for both the web app and the worker.
+
+The full template:
 
 ```env
 # Redis (Upstash)
@@ -25,7 +34,13 @@ SUPABASE_SERVICE_ROLE_KEY="<service-role-key>"
 # Drizzle / worker writes: Supabase Transaction pooler URL (port 6543)
 DATABASE_URL="postgresql://postgres.<ref>:<password>@<host>:6543/postgres"
 
-# Google OAuth
+# OAuth redirect target — /auth/callback builds its redirect origin from this.
+# Defaults to http://localhost:3000 when unset; set it in deployed environments.
+NEXT_PUBLIC_SITE_URL="http://localhost:3000"
+
+# Google OAuth — configured in the Supabase dashboard
+# (Authentication -> Providers -> Google), NOT read by the application code.
+# Only needed if you wire the provider up via the Supabase CLI / config.toml.
 OAUTH_CLIENT_ID="<client-id>.apps.googleusercontent.com"
 OAUTH_CLIENT_SECRET="<client-secret>"
 
@@ -67,7 +82,11 @@ npm run db:push      # apply directly to a local dev database
 npm run db:studio    # browse data
 ```
 
-Both `db:generate` and `db:push` read `DATABASE_URL` from `apps/web/.env.local`.
+`drizzle.config.ts` resolves `DATABASE_URL` through the same `loadEnvFiles()`
+search path as the rest of the project, so the root `.env` is picked up. If
+`DATABASE_URL` is unset, drizzle-kit falls back to
+`postgresql://localhost:5432/postgres` instead of reporting an error — if a push
+appears to hang or cannot see your tables, check that `DATABASE_URL` is set.
 
 ## Development
 
