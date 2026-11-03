@@ -1,7 +1,7 @@
 import { and, eq, isNotNull } from 'drizzle-orm';
 import { documentChunks, documents, llmUsage, messages, voiceTurns } from './db/schema';
 import { getDb } from './db/client';
-import { logDocument } from './logger';
+import { log } from './logger';
 import type { EmbeddedChunk } from './embedder';
 
 // ── Public types ───────────────────────────────────────────────────────────
@@ -27,7 +27,7 @@ export async function updateParseStatus(
     errorMessage?: string,
     db: ReturnType<typeof getDb> = getDb(),
 ) {
-    logDocument.event('repository', 'updating parse status', { documentId, status });
+    log.event('repository', 'updating parse status', { documentId, status });
 
     try {
         await db
@@ -35,7 +35,7 @@ export async function updateParseStatus(
             .set({ parseStatus: status, errorMessage: errorMessage ?? null })
             .where(eq(documents.documentId, documentId));
     } catch (error) {
-        logDocument.error('repository', 'update parse status failed', error, {
+        log.error('repository', 'update parse status failed', error, {
             documentId,
             status,
         });
@@ -44,7 +44,7 @@ export async function updateParseStatus(
         );
     }
 
-    logDocument.event('repository', 'parse status updated', { documentId, status });
+    log.event('repository', 'parse status updated', { documentId, status });
 }
 
 export async function saveChunks(
@@ -54,7 +54,7 @@ export async function saveChunks(
 ) {
     if (chunks.length === 0) return;
 
-    logDocument.event('repository', 'saving chunks', {
+    log.event('repository', 'saving chunks', {
         documentId,
         chunkCount: chunks.length,
         embeddingDimensions: chunks[0]?.embedding.length ?? 0,
@@ -76,7 +76,7 @@ export async function saveChunks(
         await db.delete(documentChunks).where(eq(documentChunks.documentId, documentId));
         await db.insert(documentChunks).values(rows);
     } catch (error) {
-        logDocument.error('repository', 'save chunks failed', error, {
+        log.error('repository', 'save chunks failed', error, {
             documentId,
             chunkCount: chunks.length,
         });
@@ -85,7 +85,7 @@ export async function saveChunks(
         );
     }
 
-    logDocument.event('repository', 'chunks saved', { documentId, chunkCount: chunks.length });
+    log.event('repository', 'chunks saved', { documentId, chunkCount: chunks.length });
 }
 
 /** Existing embeddings for a document, keyed by content hash (embedding reuse). */
@@ -100,14 +100,8 @@ export async function getEmbeddingsByHash(
 
     const map = new Map<string, number[]>();
     for (const row of rows) {
-        if (!row.contentHash || !row.embedding) continue;
-        // pgvector returns "[1,2,3]" text through postgres-js
-        const vector = String(row.embedding)
-            .slice(1, -1)
-            .split(',')
-            .map(Number)
-            .filter((n) => Number.isFinite(n));
-        if (vector.length > 0) map.set(row.contentHash, vector);
+        // drizzle's vector column already maps pgvector text -> number[]
+        if (row.contentHash && row.embedding?.length) map.set(row.contentHash, row.embedding);
     }
     return map;
 }
@@ -204,6 +198,6 @@ export async function recordLlmUsage(
         });
     } catch (error) {
         // Observability must never break the request path
-        logDocument.error('llm-usage', 'insert failed', error, { feature: row.feature });
+        log.error('llm-usage', 'insert failed', error, { feature: row.feature });
     }
 }

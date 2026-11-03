@@ -47,7 +47,6 @@ function createPdfFile(content = 'hello pdf') {
 function createDeps(options?: {
     authError?: { message: string } | null;
     user?: { id: string } | null;
-    session?: { access_token: string } | null;
     insertError?: { message: string } | null;
     enqueueError?: Error;
 }) {
@@ -69,18 +68,6 @@ function createDeps(options?: {
                                         : { id: 'user-123' },
                             },
                             error: options?.authError ?? null,
-                        };
-                    },
-                    async getSession() {
-                        return {
-                            data: {
-                                session:
-                                    options && 'session' in options
-                                        ? options.session!
-                                        : {
-                                              access_token: 'access-token-123',
-                                          },
-                            },
                         };
                     },
                 },
@@ -175,7 +162,6 @@ describe('document upload handler', () => {
             fileBase64: Buffer.from('course notes').toString('base64'),
             fileName: 'notes.pdf',
             fileType: 'application/pdf',
-            userAccessToken: 'access-token-123',
             userId: 'user-123',
         });
         assert.equal(fixture.healthChecks, 1);
@@ -184,7 +170,6 @@ describe('document upload handler', () => {
     it('returns unauthorized without inserting or enqueueing when auth is missing', async () => {
         const fixture = createDeps({
             user: null,
-            session: null,
         });
 
         const response = await handleDocumentUpload(

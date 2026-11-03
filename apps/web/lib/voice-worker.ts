@@ -1,5 +1,5 @@
 import { Worker } from 'bullmq';
-import { logDocument } from './logger';
+import { log } from './logger';
 import { loadEnvFiles } from './load-env';
 import { createRedisConnection } from './redis';
 import { callLlmChat, type ChatMessage, type LlmCallMeta } from './llm';
@@ -62,7 +62,7 @@ export async function handleVoiceJob(
     const { voiceTurnId, userId, sessionId, documentIds, storagePath, audioHash, mimeType } = data;
     const startedAt = Date.now();
 
-    logDocument.event('voice', 'job started', {
+    log.event('voice', 'job started', {
         voiceTurnId,
         sessionId,
         documentCount: documentIds.length,
@@ -79,10 +79,10 @@ export async function handleVoiceJob(
         if (cached) {
             transcript = cached;
             cacheHit = true;
-            logDocument.event('voice', 'transcript reused from cache', { voiceTurnId });
+            log.event('voice', 'transcript reused from cache', { voiceTurnId });
         } else {
             const { buffer, contentType } = await deps.downloadAudio(storagePath);
-            logDocument.event('voice', 'audio downloaded', {
+            log.event('voice', 'audio downloaded', {
                 voiceTurnId,
                 bytes: buffer.byteLength,
             });
@@ -105,7 +105,7 @@ export async function handleVoiceJob(
                 fallbackUsed: false,
             });
 
-            logDocument.event('voice', 'transcribed', {
+            log.event('voice', 'transcribed', {
                 voiceTurnId,
                 sttMs,
                 durationMs: stt.durationMs,
@@ -151,10 +151,10 @@ export async function handleVoiceJob(
         try {
             await deps.deleteAudio(storagePath);
         } catch (err) {
-            logDocument.error('voice', 'audio delete failed', err, { voiceTurnId, storagePath });
+            log.error('voice', 'audio delete failed', err, { voiceTurnId, storagePath });
         }
 
-        logDocument.event('voice', 'turn complete', {
+        log.event('voice', 'turn complete', {
             voiceTurnId,
             sessionId,
             cache_hit: cacheHit,
@@ -170,7 +170,7 @@ export async function handleVoiceJob(
         return { transcript, reply };
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        logDocument.error('voice', 'job failed', err, {
+        log.error('voice', 'job failed', err, {
             voiceTurnId,
             finalAttempt: opts.finalAttempt !== false,
             elapsedMs: Date.now() - startedAt,
@@ -180,7 +180,7 @@ export async function handleVoiceJob(
             try {
                 await deps.updateVoiceTurn(voiceTurnId, { status: 'failed', errorMessage: message });
             } catch (statusError) {
-                logDocument.error('voice', 'failed to mark turn failed', statusError, { voiceTurnId });
+                log.error('voice', 'failed to mark turn failed', statusError, { voiceTurnId });
             }
         }
 
@@ -273,7 +273,7 @@ export function startVoiceWorker() {
     );
 
     voiceWorker.on('failed', (job, err) => {
-        logDocument.error('voice', 'job failed event', err, {
+        log.error('voice', 'job failed event', err, {
             voiceTurnId: job?.data.voiceTurnId,
             jobId: job?.id,
             attemptsMade: job?.attemptsMade,
@@ -281,10 +281,10 @@ export function startVoiceWorker() {
     });
 
     voiceWorker.on('error', (err) => {
-        logDocument.error('voice', 'worker error event', err);
+        log.error('voice', 'worker error event', err);
     });
 
-    logDocument.event('voice', 'worker started', {
+    log.event('voice', 'worker started', {
         concurrency: Number(process.env.VOICE_WORKER_CONCURRENCY ?? 2),
     });
 

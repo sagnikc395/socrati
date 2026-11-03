@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { logMindMap } from './logger';
+import { log } from './logger';
 import { callLlmJson } from './llm';
 import { getAnonSupabaseClient } from './supabase/api';
 
@@ -247,7 +247,7 @@ export async function generateMindMap({
     const startedAt = Date.now();
     const supabase = getAnonSupabaseClient(accessToken);
 
-    logMindMap.event('generate', 'fetching document chunks', { documentId });
+    log.event('generate', 'fetching document chunks', { documentId });
 
     const { data: chunks, error: chunkError } = await supabase
         .from('document_chunks')
@@ -257,12 +257,12 @@ export async function generateMindMap({
         .limit(MAX_CHUNKS_TO_FETCH);
 
     if (chunkError) {
-        logMindMap.error('generate', 'chunk fetch failed', chunkError, { documentId });
+        log.error('generate', 'chunk fetch failed', chunkError, { documentId });
         throw new Error(`Failed to fetch chunks: ${chunkError.message}`);
     }
 
     if (!chunks || chunks.length === 0) {
-        logMindMap.event('generate', 'no chunks found', { documentId });
+        log.event('generate', 'no chunks found', { documentId });
         throw new Error('No content found for this document.');
     }
 
@@ -276,7 +276,7 @@ export async function generateMindMap({
 
     if (wordCount < MIN_WORDS_FOR_HIERARCHY) {
         const warning = 'Document is too short to build a reliable hierarchy. Returning key terms instead.';
-        logMindMap.event('generate', 'returning short-document fallback', {
+        log.event('generate', 'returning short-document fallback', {
             documentId,
             chunkCount: typedChunks.length,
             wordCount,
@@ -285,7 +285,7 @@ export async function generateMindMap({
     }
 
     const contextText = buildContext(typedChunks);
-    logMindMap.event('generate', 'calling Groq for topic extraction', {
+    log.event('generate', 'calling Groq for topic extraction', {
         documentId,
         chunkCount: typedChunks.length,
         sampledChunkCount: sampleChunks(typedChunks).length,
@@ -296,7 +296,7 @@ export async function generateMindMap({
 
     if (!isHierarchical(graph)) {
         const warning = 'Document did not contain enough clear structure for a hierarchy. Returning key terms instead.';
-        logMindMap.event('generate', 'returning unstructured-document fallback', {
+        log.event('generate', 'returning unstructured-document fallback', {
             documentId,
             nodeCount: graph.nodes.length,
             edgeCount: graph.edges.length,
@@ -305,7 +305,7 @@ export async function generateMindMap({
         return fallbackGraph(typedChunks, warning);
     }
 
-    logMindMap.event('generate', 'mind map generated', {
+    log.event('generate', 'mind map generated', {
         documentId,
         nodeCount: graph.nodes.length,
         edgeCount: graph.edges.length,

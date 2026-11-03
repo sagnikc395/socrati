@@ -37,16 +37,3 @@ export function getVoiceQueue() {
 
     return voiceQueue;
 }
-
-export async function getVoiceQueueHealth() {
-    const queue = getVoiceQueue();
-    const [jobCounts, workers] = await Promise.all([
-        queue.getJobCounts('waiting', 'active', 'completed', 'failed', 'delayed', 'paused'),
-        queue.getWorkers().catch(() => []),
-    ]);
-
-    return {
-        jobCounts,
-        workerCount: workers.length,
-    };
-}

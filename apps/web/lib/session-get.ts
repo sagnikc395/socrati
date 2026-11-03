@@ -1,4 +1,4 @@
-import { logSession } from './logger';
+import { log } from './logger';
 
 type SupabaseError = { message: string; code?: string };
 
@@ -62,7 +62,7 @@ export async function handleSessionGet(
     deps: GetSessionDeps,
 ) {
     const startedAt = Date.now();
-    logSession.event('get', 'request received', { sessionId });
+    log.event('get', 'request received', { sessionId });
 
     const supabase = await deps.createSupabaseClient();
     const {
@@ -71,14 +71,14 @@ export async function handleSessionGet(
     } = await supabase.auth.getUser();
 
     if (authError || !user) {
-        logSession.event('get', 'unauthorized request', {
+        log.event('get', 'unauthorized request', {
             sessionId,
             hasAuthError: Boolean(authError),
         });
         return Response.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
-    logSession.event('get', 'fetching session', { sessionId, userId: user.id });
+    log.event('get', 'fetching session', { sessionId, userId: user.id });
 
     const { data: session, error: sessionError } = await supabase
         .from('sessions')
@@ -89,24 +89,24 @@ export async function handleSessionGet(
     if (sessionError) {
         // PGRST116 = no rows found with .single() — treat as 404
         if (sessionError.code === 'PGRST116') {
-            logSession.event('get', 'session not found', { sessionId });
+            log.event('get', 'session not found', { sessionId });
             return Response.json({ message: 'Session not found' }, { status: 404 });
         }
-        logSession.error('get', 'session query failed', sessionError, { sessionId });
+        log.error('get', 'session query failed', sessionError, { sessionId });
         return Response.json({ message: sessionError.message }, { status: 500 });
     }
 
     if (!session) {
-        logSession.event('get', 'session not found', { sessionId });
+        log.event('get', 'session not found', { sessionId });
         return Response.json({ message: 'Session not found' }, { status: 404 });
     }
 
     if (session.document_ids.length === 0) {
-        logSession.event('get', 'session has no documents', { sessionId });
+        log.event('get', 'session has no documents', { sessionId });
         return Response.json({ session, documents: [] });
     }
 
-    logSession.event('get', 'fetching session documents', {
+    log.event('get', 'fetching session documents', {
         sessionId,
         documentCount: session.document_ids.length,
     });
@@ -117,14 +117,14 @@ export async function handleSessionGet(
         .in('document_id', session.document_ids);
 
     if (docsError) {
-        logSession.error('get', 'documents query failed', docsError, {
+        log.error('get', 'documents query failed', docsError, {
             sessionId,
             documentCount: session.document_ids.length,
         });
         return Response.json({ message: docsError.message }, { status: 500 });
     }
 
-    logSession.event('get', 'fetching session messages', { sessionId });
+    log.event('get', 'fetching session messages', { sessionId });
 
     // Using `any` cast to avoid complex Supabase type instantiation limits in this helper
     const { data: messages, error: messagesError } = await (supabase.from('messages') as any)
@@ -133,11 +133,11 @@ export async function handleSessionGet(
         .order('created_at', { ascending: true });
 
     if (messagesError) {
-        logSession.error('get', 'messages query failed', messagesError, { sessionId });
+        log.error('get', 'messages query failed', messagesError, { sessionId });
         return Response.json({ message: messagesError.message }, { status: 500 });
     }
 
-    logSession.event('get', 'session fetched', {
+    log.event('get', 'session fetched', {
         sessionId,
         userId: user.id,
         documentCount: documents?.length ?? 0,

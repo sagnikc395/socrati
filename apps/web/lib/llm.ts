@@ -1,4 +1,6 @@
-import { logMindMap } from './logger';
+import { createGroq } from '@ai-sdk/groq';
+import { streamText, type StreamTextResult, type ToolSet } from 'ai';
+import { log } from './logger';
 import { recordLlmUsage } from './repository';
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -56,6 +58,19 @@ export function isCircuitOpen(now = Date.now()): boolean {
 export function resetCircuitBreaker() {
     consecutiveFailures = 0;
     openUntil = 0;
+}
+
+function noteSuccess() {
+    consecutiveFailures = 0;
+}
+
+function noteFailure(feature: LlmFeature, now: () => number = Date.now) {
+    consecutiveFailures += 1;
+    if (consecutiveFailures >= CIRCUIT_THRESHOLD) {
+        openUntil = now() + CIRCUIT_OPEN_MS;
+        consecutiveFailures = 0;
+        log.event('llm', 'circuit breaker opened', { openUntil, feature });
+    }
 }
 
 // ── Core call ────────────────────────────────────────────────────────────────
@@ -170,22 +185,17 @@ async function callWithFallback<T>(
                 meta.fallbackUsed = attempt.provider === 'fallback';
                 meta.inputTokens = r.usage?.prompt_tokens;
                 meta.outputTokens = r.usage?.completion_tokens;
-                consecutiveFailures = 0;
+                noteSuccess();
 
                 return { value, meta };
             } catch (err) {
                 lastError = err;
-                logMindMap.error('llm', 'model attempt failed', err, { model: attempt.name, feature });
+                log.error('llm', 'model attempt failed', err, { model: attempt.name, feature });
             }
         }
 
         // Every attempt failed — count toward opening the breaker
-        consecutiveFailures += 1;
-        if (consecutiveFailures >= CIRCUIT_THRESHOLD) {
-            openUntil = now() + CIRCUIT_OPEN_MS;
-            consecutiveFailures = 0;
-            logMindMap.event('llm', 'circuit breaker opened', { openUntil, feature });
-        }
+        noteFailure(feature, now);
         throw lastError;
     } finally {
         clearTimeout(timeout);
@@ -244,4 +254,77 @@ export async function callLlmChat(
         deps,
     );
     return { text: value, meta };
+}
+
+/**
+ * Streaming chat completion (the Socratic reply the browser consumes).
+ *
+ * Shares this module's model choice, circuit breaker and llm_usage recording
+ * with callLlmJson/callLlmChat, so Groq policy lives in one place. It does
+ * *not* share callWithFallback's retry: once a token has been emitted the
+ * response is committed, so a mid-stream swap would duplicate output. The
+ * breaker therefore only chooses the model up front — a failed stream counts
+ * toward opening it, and the next caller starts on the fallback.
+ */
+export function streamLlmChat(
+    feature: LlmFeature,
+    opts: {
+        system: string;
+        messages: ChatMessage[];
+        /** Larger model — used for turns carrying web-search results. */
+        preferLarge?: boolean;
+        userId?: string | null;
+        sessionId?: string | null;
+        /** Called with the finished reply (persistence, logging). */
+        onFinish?: (args: {
+            text: string;
+            model: string;
+            totalMs: number;
+            inputTokens?: number;
+            outputTokens?: number;
+        }) => Promise<void> | void;
+    },
+): { model: string; result: StreamTextResult<ToolSet, never> } {
+    const apiKey = process.env.GROQ_API_KEY;
+    if (!apiKey) throw new Error('GROQ_API_KEY is missing — required for chat.');
+
+    const startedAt = Date.now();
+    const model = opts.preferLarge || isCircuitOpen() ? FALLBACK_MODEL : PRIMARY_MODEL;
+    const groq = createGroq({ apiKey });
+
+    const result = streamText({
+        model: groq(model),
+        system: opts.system,
+        messages: opts.messages,
+        onError: ({ error }) => {
+            log.error('llm', 'stream failed', error, { model, feature });
+            noteFailure(feature);
+        },
+        onFinish: async ({ text, usage }) => {
+            noteSuccess();
+            const totalMs = Date.now() - startedAt;
+
+            void recordLlmUsage({
+                userId: opts.userId ?? null,
+                sessionId: opts.sessionId ?? null,
+                feature,
+                provider: model === FALLBACK_MODEL ? 'fallback' : 'groq',
+                model,
+                inputTokens: usage?.inputTokens ?? null,
+                outputTokens: usage?.outputTokens ?? null,
+                totalMs,
+                fallbackUsed: model === FALLBACK_MODEL,
+            });
+
+            await opts.onFinish?.({
+                text,
+                model,
+                totalMs,
+                inputTokens: usage?.inputTokens,
+                outputTokens: usage?.outputTokens,
+            });
+        },
+    });
+
+    return { model, result };
 }

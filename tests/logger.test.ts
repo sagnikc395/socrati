@@ -1,6 +1,6 @@
 import { describe, it, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { createLogger } from '../apps/web/lib/logger';
+import { log } from '../apps/web/lib/logger';
 
 function captureConsole(method: 'log' | 'error'): { lines: string[]; restore: () => void } {
     const lines: string[] = [];
@@ -18,9 +18,9 @@ describe('logger', () => {
     it('bind() attaches requestId to every event line', () => {
         const { lines } = captureConsole('log');
 
-        const log = createLogger('test').bind({ requestId: 'req-1' });
-        log.event('scope', 'hello', { extra: 1 });
-        log.event('scope', 'no fields');
+        const bound = log.bind({ requestId: 'req-1' });
+        bound.event('scope', 'hello', { extra: 1 });
+        bound.event('scope', 'no fields');
 
         assert.equal(lines.length, 2);
         assert.match(lines[0]!, /requestId/);
@@ -33,8 +33,8 @@ describe('logger', () => {
     it('bind() attaches jobId to error lines including Error fields', () => {
         const { lines } = captureConsole('error');
 
-        const log = createLogger('test').bind({ jobId: 'job-9' });
-        log.error('scope', 'failed', new Error('boom'), { docId: 'd1' });
+        const bound = log.bind({ jobId: 'job-9' });
+        bound.error('scope', 'failed', new Error('boom'), { docId: 'd1' });
 
         assert.match(lines[0]!, /jobId/);
         assert.match(lines[0]!, /job-9/);
@@ -45,7 +45,7 @@ describe('logger', () => {
     it('redacts token/key/secret/password fields', () => {
         const { lines } = captureConsole('log');
 
-        createLogger('test').event('auth', 'request', {
+        log.event('auth', 'request', {
             accessToken: 'secret-jwt',
             apiKey: 'k-123',
             userId: 'visible',
@@ -61,7 +61,7 @@ describe('logger', () => {
     it('error() accepts fields-only shape (no Error)', () => {
         const { lines } = captureConsole('error');
 
-        createLogger('test').error('chat', 'rate limited', { userId: 'u1' });
+        log.error('chat', 'rate limited', { userId: 'u1' });
 
         assert.match(lines[0]!, /rate limited/);
         assert.match(lines[0]!, /u1/);
@@ -70,8 +70,8 @@ describe('logger', () => {
     it('unbound logger produces clean lines without context fields', () => {
         const { lines } = captureConsole('log');
 
-        createLogger('plain').event('x', 'message only');
+        log.event('x', 'message only');
 
-        assert.match(lines[0]!, /^\[plain:x\] message only/);
+        assert.match(lines[0]!, /^\[x\] message only/);
     });
 });

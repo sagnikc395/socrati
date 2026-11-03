@@ -3,7 +3,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { generateMindMap } from '@/lib/mindmap';
 import { loadEnvFiles } from '@/lib/load-env';
-import { logMindMap } from '@/lib/logger';
+import { log } from '@/lib/logger';
 
 export async function POST(req: Request) {
     loadEnvFiles();
@@ -17,7 +17,7 @@ export async function POST(req: Request) {
 
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
-        logMindMap.event('route', 'unauthorized request');
+        log.event('route', 'unauthorized request');
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -25,13 +25,13 @@ export async function POST(req: Request) {
     try {
         body = await req.json();
     } catch {
-        logMindMap.event('route', 'invalid JSON body');
+        log.event('route', 'invalid JSON body');
         return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
     }
 
     const documentId = (body as Record<string, unknown>)?.documentId;
     if (typeof documentId !== 'string' || documentId.trim().length === 0) {
-        logMindMap.event('route', 'missing documentId');
+        log.event('route', 'missing documentId');
         return NextResponse.json({ error: 'documentId is required.' }, { status: 400 });
     }
 
@@ -44,7 +44,7 @@ export async function POST(req: Request) {
 
         return NextResponse.json(result);
     } catch (err) {
-        logMindMap.error('route', 'mind map generation failed', err, { documentId });
+        log.error('route', 'mind map generation failed', err, { documentId });
         return NextResponse.json(
             { error: err instanceof Error ? err.message : 'Mind map generation failed.' },
             { status: 500 },

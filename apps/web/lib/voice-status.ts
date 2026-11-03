@@ -1,4 +1,4 @@
-import { logDocument } from './logger';
+import { log } from './logger';
 
 type VoiceTurnRow = {
     status: string;
@@ -56,7 +56,7 @@ export async function handleVoiceStatus(
         .maybeSingle();
 
     if (error) {
-        logDocument.error('voice', 'status lookup failed', error, { voiceTurnId });
+        log.error('voice', 'status lookup failed', error, { voiceTurnId });
         return Response.json({ message: error.message }, { status: 500 });
     }
 

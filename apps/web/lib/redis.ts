@@ -1,5 +1,5 @@
 import IORedis from 'ioredis';
-import { logDocument } from './logger';
+import { log } from './logger';
 import { loadEnvFiles } from './load-env';
 
 function getRedisUrl() {
@@ -42,23 +42,23 @@ export function createRedisConnection() {
     });
 
     connection.on('connect', () => {
-        logDocument.event('redis', 'connect');
+        log.event('redis', 'connect');
     });
 
     connection.on('ready', () => {
-        logDocument.event('redis', 'ready');
+        log.event('redis', 'ready');
     });
 
     connection.on('error', (err) => {
-        logDocument.error('redis', 'connection error', err);
+        log.error('redis', 'connection error', err);
     });
 
     connection.on('close', () => {
-        logDocument.event('redis', 'connection closed');
+        log.event('redis', 'connection closed');
     });
 
     connection.on('reconnecting', (delay: number) => {
-        logDocument.event('redis', 'reconnecting', { delay });
+        log.event('redis', 'reconnecting', { delay });
     });
 
     return connection;
@@ -117,13 +117,7 @@ export async function checkRateLimit(
         await redis.expire(key, windowSec);
         return { allowed: true, remaining: limit - count - 1, retryAfterSec: 0 };
     } catch (err) {
-        logDocument.error('ratelimit', 'check failed — failing open', err, { userId });
+        log.error('ratelimit', 'check failed — failing open', err, { userId });
         return { allowed: true, remaining: limit, retryAfterSec: 0 };
     }
-}
-
-/** Test hook. */
-export async function closeRateLimitClient() {
-    await rateLimitClient?.quit();
-    rateLimitClient = undefined;
 }

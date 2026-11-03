@@ -1,6 +1,12 @@
-import { describe, it, afterEach } from 'node:test';
+import { after, before, describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { callLlmJson, isCircuitOpen, resetCircuitBreaker, type LlmCallMeta } from '../apps/web/lib/llm';
+import {
+    callLlmJson,
+    isCircuitOpen,
+    resetCircuitBreaker,
+    streamLlmChat,
+    type LlmCallMeta,
+} from '../apps/web/lib/llm';
 
 type FetchCall = { url: string; body: { model: string } };
 
@@ -136,5 +142,65 @@ describe('callLlmJson', () => {
         assert.equal(recorded[0]!.userId, 'u1');
         assert.equal(recorded[0]!.sessionId, 's1');
         assert.equal(recorded[0]!.provider, 'groq');
+    });
+});
+
+// streamLlmChat shares this module's model choice and breaker with
+// callLlmJson. Model selection happens before any token is requested, so
+// these assert on the returned `model` without consuming the stream.
+describe('streamLlmChat model selection', () => {
+    // Nothing loads .env.test, so the key is set here rather than inherited.
+    const savedKey = process.env.GROQ_API_KEY;
+
+    before(() => {
+        process.env.GROQ_API_KEY = 'test-groq-key';
+    });
+
+    after(() => {
+        if (savedKey === undefined) delete process.env.GROQ_API_KEY;
+        else process.env.GROQ_API_KEY = savedKey;
+    });
+
+    afterEach(() => {
+        resetCircuitBreaker();
+        recorded.length = 0;
+    });
+
+    const opts = { system: 's', messages: [{ role: 'user' as const, content: 'q' }] };
+
+    it('uses the primary model for an ordinary turn', () => {
+        assert.equal(streamLlmChat('chat', opts).model, 'llama-3.1-8b-instant');
+    });
+
+    it('uses the larger model when web results are in play', () => {
+        assert.equal(
+            streamLlmChat('chat', { ...opts, preferLarge: true }).model,
+            'llama-3.3-70b-versatile',
+        );
+    });
+
+    it('skips the primary while the shared circuit breaker is open', async () => {
+        const fn = (async (_url: unknown) =>
+            ({ ok: false, text: async () => 'down' }) as unknown as Response) as typeof fetch;
+        // Real clock here: streamLlmChat checks the breaker against Date.now(),
+        // so openUntil has to land in the actual future.
+        const failing = { fetchFn: fn, recordUsage: recordStub, now: Date.now };
+
+        for (let i = 0; i < 3; i++) {
+            await assert.rejects(() => callLlmJson('quiz', 'p', {}, failing));
+        }
+        assert.equal(isCircuitOpen(), true);
+
+        assert.equal(streamLlmChat('chat', opts).model, 'llama-3.3-70b-versatile');
+    });
+
+    it('throws a configuration error when GROQ_API_KEY is absent', () => {
+        const key = process.env.GROQ_API_KEY;
+        delete process.env.GROQ_API_KEY;
+        try {
+            assert.throws(() => streamLlmChat('chat', opts), /GROQ_API_KEY is missing/);
+        } finally {
+            process.env.GROQ_API_KEY = key;
+        }
     });
 });

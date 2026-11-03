@@ -15,7 +15,7 @@ function createMockDb(options: {
     insertError?: Error | null;
     updateError?: Error | null;
     selectError?: Error | null;
-    existingRows?: { contentHash: string | null; embedding: string | null }[];
+    existingRows?: { contentHash: string | null; embedding: number[] | null }[];
 } = {}) {
     const calls: Call[] = [];
 
@@ -168,18 +168,29 @@ describe('repository.saveChunks', () => {
 // ── getEmbeddingsByHash ────────────────────────────────────────────────────
 
 describe('repository.getEmbeddingsByHash', () => {
-    it('parses pgvector text "[a,b,c]" into a hash-keyed vector map', async () => {
+    // Drizzle's vector column maps pgvector text -> number[] before we see it.
+    // The leading negative value is deliberate: re-parsing the array as a
+    // string (String(v).slice(1,-1)) silently flips its sign.
+    it('keys drizzle-decoded vectors by content hash, verbatim', async () => {
         const { db } = createMockDb({
             existingRows: [
-                { contentHash: 'abc', embedding: '[0.1,0.2,0.3]' },
-                { contentHash: null, embedding: '[0.4,0.5,0.6]' }, // skipped
+                { contentHash: 'abc', embedding: [-0.0123, 0.2, 0.0456] },
+                { contentHash: null, embedding: [0.4, 0.5, 0.6] }, // skipped
             ],
         });
 
         const map = await getEmbeddingsByHash('doc-1', db);
 
-        assert.deepEqual(map.get('abc'), [0.1, 0.2, 0.3]);
+        assert.deepEqual(map.get('abc'), [-0.0123, 0.2, 0.0456]);
         assert.equal(map.size, 1);
+    });
+
+    it('skips rows with an empty embedding', async () => {
+        const { db } = createMockDb({
+            existingRows: [{ contentHash: 'abc', embedding: [] }],
+        });
+
+        assert.equal((await getEmbeddingsByHash('doc-1', db)).size, 0);
     });
 
     it('returns an empty map when the document has no chunks', async () => {

@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { logDocument } from '@/lib/logger';
+import { log } from '@/lib/logger';
 import { getDocumentQueueHealth } from '@/lib/queue';
 import { createClient } from '@/lib/supabase/server';
 
@@ -28,7 +28,7 @@ export async function GET(
                 if (interval) clearInterval(interval);
                 if (timeout) clearTimeout(timeout);
 
-                logDocument.event('stream', 'closing stream', {
+                log.event('stream', 'closing stream', {
                     documentId,
                     status,
                     error,
@@ -50,7 +50,7 @@ export async function GET(
                         .single();
 
                     if (error) {
-                        logDocument.error('stream', 'status poll failed', error, {
+                        log.error('stream', 'status poll failed', error, {
                             documentId,
                             pollCount,
                         });
@@ -59,7 +59,7 @@ export async function GET(
                     }
 
                     const status = data.parse_status as ParseStatus;
-                    logDocument.event('stream', 'status polled', {
+                    log.event('stream', 'status polled', {
                         documentId,
                         status,
                         pollCount,
@@ -67,7 +67,7 @@ export async function GET(
 
                     if (status === 'pending' && pollCount >= 15) {
                         const health = await getDocumentQueueHealth();
-                        logDocument.event('stream', 'pending queue health checked', {
+                        log.event('stream', 'pending queue health checked', {
                             documentId,
                             pollCount,
                             workerCount: health.workerCount,
@@ -99,7 +99,7 @@ export async function GET(
                     }
                 } catch (err) {
                     const msg = err instanceof Error ? err.message : 'Status check failed';
-                    logDocument.error('stream', 'status poll threw', err, {
+                    log.error('stream', 'status poll threw', err, {
                         documentId,
                         pollCount,
                     });
@@ -108,7 +108,7 @@ export async function GET(
             };
 
             timeout = setTimeout(() => {
-                logDocument.event('stream', 'stream timed out', {
+                log.event('stream', 'stream timed out', {
                     documentId,
                     pollCount,
                 });
@@ -122,7 +122,7 @@ export async function GET(
             closed = true;
             if (interval) clearInterval(interval);
             if (timeout) clearTimeout(timeout);
-            logDocument.event('stream', 'client disconnected', {
+            log.event('stream', 'client disconnected', {
                 documentId,
                 pollCount,
             });

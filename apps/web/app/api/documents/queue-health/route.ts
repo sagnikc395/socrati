@@ -1,4 +1,4 @@
-import { logDocument } from '@/lib/logger';
+import { log } from '@/lib/logger';
 import { getDocumentQueueHealth } from '@/lib/queue';
 
 export const runtime = 'nodejs';
@@ -6,14 +6,14 @@ export const runtime = 'nodejs';
 export async function GET() {
     try {
         const health = await getDocumentQueueHealth();
-        logDocument.event('queue-health', 'checked', health);
+        log.event('queue-health', 'checked', health);
 
         return Response.json({
             ok: health.workerCount > 0,
             ...health,
         });
     } catch (err) {
-        logDocument.error('queue-health', 'check failed', err);
+        log.error('queue-health', 'check failed', err);
 
         return Response.json(
             {

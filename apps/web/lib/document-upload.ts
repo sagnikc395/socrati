@@ -1,4 +1,4 @@
-import { logDocument } from './logger';
+import { log } from './logger';
 import type { DocumentJobData } from './queue';
 
 type SupabaseError = {
@@ -7,10 +7,6 @@ type SupabaseError = {
 
 type SupabaseUser = {
     id: string;
-};
-
-type SupabaseSession = {
-    access_token: string;
 };
 
 type SupabaseResult = {
@@ -22,9 +18,6 @@ type SupabaseClientLike = {
         getUser(): Promise<{
             data: { user: SupabaseUser | null };
             error?: SupabaseError | null;
-        }>;
-        getSession(): Promise<{
-            data: { session: SupabaseSession | null };
         }>;
     };
     from(table: string): {
@@ -59,7 +52,7 @@ export async function handleDocumentUpload(
     let documentId: string | undefined;
 
     try {
-        logDocument.event('upload', 'request received', {
+        log.event('upload', 'request received', {
             contentType: req.headers.get('content-type'),
             contentLength: req.headers.get('content-length'),
         });
@@ -69,20 +62,16 @@ export async function handleDocumentUpload(
             data: { user },
             error: authError,
         } = await supabase.auth.getUser();
-        const {
-            data: { session },
-        } = await supabase.auth.getSession();
 
-        if (authError || !user || !session?.access_token) {
-            logDocument.event('upload', 'unauthorized request', {
+        if (authError || !user) {
+            log.event('upload', 'unauthorized request', {
                 hasAuthError: Boolean(authError),
                 hasUser: Boolean(user),
-                hasSession: Boolean(session),
             });
             return Response.json({ message: 'Unauthorized' }, { status: 401 });
         }
 
-        logDocument.event('upload', 'authenticated user', {
+        log.event('upload', 'authenticated user', {
             userId: user.id,
         });
 
@@ -90,12 +79,12 @@ export async function handleDocumentUpload(
         const file = formData.get('file') as File | null;
 
         if (!file) {
-            logDocument.event('upload', 'missing file');
+            log.event('upload', 'missing file');
             return Response.json({ message: 'No file provided' }, { status: 400 });
         }
 
         documentId = deps.generateDocumentId();
-        logDocument.event('upload', 'file received', {
+        log.event('upload', 'file received', {
             documentId,
             fileName: file.name,
             fileSize: file.size,
@@ -103,7 +92,7 @@ export async function handleDocumentUpload(
         });
 
         const buffer = Buffer.from(await file.arrayBuffer());
-        logDocument.event('upload', 'file buffered', {
+        log.event('upload', 'file buffered', {
             documentId,
             bufferBytes: buffer.byteLength,
         });
@@ -117,14 +106,14 @@ export async function handleDocumentUpload(
         });
 
         if (insertError) {
-            logDocument.error('upload', 'document insert failed', insertError, {
+            log.error('upload', 'document insert failed', insertError, {
                 documentId,
                 userId: user.id,
             });
             throw new Error(`createDocument failed: ${insertError.message}`);
         }
 
-        logDocument.event('upload', 'document row created', {
+        log.event('upload', 'document row created', {
             documentId,
             elapsedMs: Date.now() - startedAt,
         });
@@ -135,18 +124,17 @@ export async function handleDocumentUpload(
                 fileBase64: buffer.toString('base64'),
                 fileName: file.name,
                 fileType: file.type || 'application/octet-stream',
-                userAccessToken: session.access_token,
                 userId: user.id,
             });
 
-            logDocument.event('upload', 'job enqueued', {
+            log.event('upload', 'job enqueued', {
                 documentId,
                 jobId: job.id,
                 elapsedMs: Date.now() - startedAt,
             });
 
             const queueHealth = await deps.getDocumentQueueHealth();
-            logDocument.event('upload', 'queue health after enqueue', {
+            log.event('upload', 'queue health after enqueue', {
                 documentId,
                 jobId: job.id,
                 workerCount: queueHealth.workerCount,
@@ -154,7 +142,7 @@ export async function handleDocumentUpload(
             });
         } catch (err) {
             const msg = err instanceof Error ? err.message : 'Failed to enqueue document';
-            logDocument.error('upload', 'job enqueue failed', err, {
+            log.error('upload', 'job enqueue failed', err, {
                 documentId,
             });
 
@@ -165,7 +153,7 @@ export async function handleDocumentUpload(
             throw err;
         }
 
-        logDocument.event('upload', 'response sent', {
+        log.event('upload', 'response sent', {
             documentId,
             elapsedMs: Date.now() - startedAt,
         });
@@ -173,7 +161,7 @@ export async function handleDocumentUpload(
         return Response.json({ documentId });
     } catch (err) {
         const msg = err instanceof Error ? err.message : 'Upload failed';
-        logDocument.error('upload', 'request failed', err, {
+        log.error('upload', 'request failed', err, {
             documentId,
             elapsedMs: Date.now() - startedAt,
         });

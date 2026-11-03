@@ -1,4 +1,4 @@
-import { logDocument } from './logger';
+import { log } from './logger';
 
 type SupabaseError = {
     message: string;
@@ -45,7 +45,7 @@ export async function handleDocumentList(
 ) {
     const startedAt = Date.now();
 
-    logDocument.event('list', 'request received');
+    log.event('list', 'request received');
 
     const supabase = await deps.createSupabaseClient();
     const {
@@ -54,7 +54,7 @@ export async function handleDocumentList(
     } = await supabase.auth.getUser();
 
     if (authError || !user) {
-        logDocument.event('list', 'unauthorized request', {
+        log.event('list', 'unauthorized request', {
             hasAuthError: Boolean(authError),
             hasUser: Boolean(user),
             elapsedMs: Date.now() - startedAt,
@@ -62,7 +62,7 @@ export async function handleDocumentList(
         return Response.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
-    logDocument.event('list', 'fetching documents', { userId: user.id });
+    log.event('list', 'fetching documents', { userId: user.id });
 
     const { data: documents, error: queryError } = await supabase
         .from('documents')
@@ -70,7 +70,7 @@ export async function handleDocumentList(
         .order('uploaded_at', { ascending: false });
 
     if (queryError) {
-        logDocument.error('list', 'query failed', queryError, {
+        log.error('list', 'query failed', queryError, {
             userId: user.id,
             elapsedMs: Date.now() - startedAt,
         });
@@ -83,7 +83,7 @@ export async function handleDocumentList(
         return acc;
     }, {});
 
-    logDocument.event('list', 'documents fetched', {
+    log.event('list', 'documents fetched', {
         userId: user.id,
         count: docs.length,
         statusCounts,

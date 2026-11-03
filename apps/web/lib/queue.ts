@@ -6,7 +6,6 @@ export type DocumentJobData = {
     fileBase64: string;
     fileName: string;
     fileType: string;
-    userAccessToken: string;
     userId: string;
 };
 

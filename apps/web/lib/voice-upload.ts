@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { logDocument } from './logger';
+import { log } from './logger';
 import { VOICE_BUCKET } from './voice-worker';
 import type { VoiceJobData } from './voice-queue';
 
@@ -115,7 +115,7 @@ export async function handleVoiceUpload(req: Request, deps: VoiceUploadDependenc
         // Stricter than chat: 10 voice uploads/min per user
         const rl = await deps.checkRateLimit(user.id, VOICE_RATE_LIMIT, 60);
         if (!rl.allowed) {
-            logDocument.event('voice', 'upload rate limited', {
+            log.event('voice', 'upload rate limited', {
                 userId: user.id,
                 retryAfterSec: rl.retryAfterSec,
             });
@@ -159,7 +159,7 @@ export async function handleVoiceUpload(req: Request, deps: VoiceUploadDependenc
         voiceTurnId = deps.generateVoiceTurnId();
         storagePath = `${user.id}/${voiceTurnId}.${extensionFor(mimeType)}`;
 
-        logDocument.event('voice', 'upload received', {
+        log.event('voice', 'upload received', {
             voiceTurnId,
             userId: user.id,
             sessionId,
@@ -173,7 +173,7 @@ export async function handleVoiceUpload(req: Request, deps: VoiceUploadDependenc
             .upload(storagePath, buffer, { contentType: mimeType, upsert: false });
 
         if (uploadError) {
-            logDocument.error('voice', 'audio upload failed', uploadError, { voiceTurnId });
+            log.error('voice', 'audio upload failed', uploadError, { voiceTurnId });
             throw new Error(`uploadAudio failed: ${uploadError.message}`);
         }
 
@@ -189,7 +189,7 @@ export async function handleVoiceUpload(req: Request, deps: VoiceUploadDependenc
         });
 
         if (insertError) {
-            logDocument.error('voice', 'voice_turn insert failed', insertError, { voiceTurnId });
+            log.error('voice', 'voice_turn insert failed', insertError, { voiceTurnId });
             throw new Error(`createVoiceTurn failed: ${insertError.message}`);
         }
 
@@ -205,14 +205,14 @@ export async function handleVoiceUpload(req: Request, deps: VoiceUploadDependenc
                 userAccessToken: session.access_token,
             });
 
-            logDocument.event('voice', 'job enqueued', {
+            log.event('voice', 'job enqueued', {
                 voiceTurnId,
                 jobId: job.id,
                 elapsedMs: Date.now() - startedAt,
             });
         } catch (err) {
             const msg = err instanceof Error ? err.message : 'Failed to enqueue voice job';
-            logDocument.error('voice', 'job enqueue failed', err, { voiceTurnId });
+            log.error('voice', 'job enqueue failed', err, { voiceTurnId });
 
             await supabase
                 .from('voice_turns')
@@ -224,7 +224,7 @@ export async function handleVoiceUpload(req: Request, deps: VoiceUploadDependenc
         return Response.json({ voiceTurnId });
     } catch (err) {
         const msg = err instanceof Error ? err.message : 'Voice upload failed';
-        logDocument.error('voice', 'upload request failed', err, {
+        log.error('voice', 'upload request failed', err, {
             voiceTurnId,
             elapsedMs: Date.now() - startedAt,
         });

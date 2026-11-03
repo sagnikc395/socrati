@@ -104,6 +104,9 @@ export const quizzes = pgTable('quizzes', {
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Unreferenced by application code (quiz.ts reads/writes via the Supabase
+// client, not Drizzle). It must stay declared anyway: this file is the diff
+// source for `db:generate`/`db:push`, so removing it drops the table.
 export const quizQuestions = pgTable('quiz_questions', {
     questionId: uuid('question_id').primaryKey().defaultRandom(),
     quizId: uuid('quiz_id')

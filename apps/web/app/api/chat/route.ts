@@ -2,13 +2,11 @@ import { retrieveContext } from '@/lib/rag';
 import { buildSystemPrompt } from '@/lib/prompts';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { streamText } from 'ai';
-import { createGroq } from '@ai-sdk/groq';
 import { loadEnvFiles } from '@/lib/load-env';
 import { performWebSearch } from '@/lib/web-agent';
-import { logDocument } from '@/lib/logger';
+import { log as rootLog } from '@/lib/logger';
 import { checkRateLimit } from '@/lib/redis';
-import { recordLlmUsage } from '@/lib/repository';
+import { streamLlmChat } from '@/lib/llm';
 
 export const runtime = 'nodejs';
 
@@ -25,10 +23,6 @@ type IncomingMessage = {
 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-// Bigger model when web results are in play so the hidden tag survives
-const CHAT_MODEL = 'llama-3.1-8b-instant';
-const CHAT_MODEL_WEB = 'llama-3.3-70b-versatile';
 
 function extractText(m: IncomingMessage): string {
     // user messages carry a string content; assistant messages may use
@@ -48,7 +42,7 @@ export async function POST(req: Request) {
 
     const requestId = req.headers.get('x-request-id') ?? crypto.randomUUID();
     const startedAt = Date.now();
-    const log = logDocument.bind({ requestId });
+    const log = rootLog.bind({ requestId });
 
     let body: ChatRequestBody;
     try {
@@ -147,61 +141,49 @@ export async function POST(req: Request) {
         }))
         .filter((m) => m.content.trim().length > 0);
 
-    if (!process.env.GROQ_API_KEY) {
-        return Response.json({ error: 'Chat is not configured (missing GROQ_API_KEY).' }, { status: 500 });
+    let stream: ReturnType<typeof streamLlmChat>;
+    try {
+        stream = streamLlmChat('chat', {
+            system: buildSystemPrompt(context, webSearchResults || undefined),
+            messages: modelMessages,
+            // Bigger model when web results are in play so the hidden tag survives
+            preferLarge: webSearchUsed,
+            userId: userId ?? null,
+            sessionId: typeof sessionId === 'string' ? sessionId : null,
+            onFinish: async ({ text, model, totalMs, inputTokens, outputTokens }) => {
+                if (userId && sessionId && text) {
+                    const { error } = await supabase.from('messages').insert({
+                        session_id: sessionId,
+                        user_id: userId,
+                        role: 'assistant',
+                        content: text,
+                    });
+                    if (error) {
+                        log.error('chat', 'failed to save assistant message', error);
+                    }
+                }
+
+                // One structured line per chat turn with the Phase-2 timing fields
+                log.event('chat', 'turn complete', {
+                    userId,
+                    sessionId,
+                    web_fallback: webSearchUsed,
+                    llm_model: model,
+                    input_tokens: inputTokens,
+                    output_tokens: outputTokens,
+                    auth_ms: authMs,
+                    retrieval_ms: retrievalMs,
+                    total_ms: totalMs,
+                });
+            },
+        });
+    } catch (err) {
+        log.error('chat', 'chat is not configured', err);
+        return Response.json(
+            { error: 'Chat is not configured (missing GROQ_API_KEY).' },
+            { status: 500 },
+        );
     }
 
-    const model = webSearchUsed ? CHAT_MODEL_WEB : CHAT_MODEL;
-
-    // Stream Socratic response from Groq
-    const groq = createGroq({ apiKey: process.env.GROQ_API_KEY });
-
-    const result = streamText({
-        model: groq(model),
-        system: buildSystemPrompt(context, webSearchResults || undefined),
-        messages: modelMessages,
-        onFinish: async ({ text, usage }) => {
-            if (userId && sessionId && text) {
-                const { error } = await supabase.from('messages').insert({
-                    session_id: sessionId,
-                    user_id: userId,
-                    role: 'assistant',
-                    content: text,
-                });
-                if (error) {
-                    log.error('chat', 'failed to save assistant message', error);
-                }
-            }
-
-            const totalMs = Date.now() - startedAt;
-
-            // One usage row per chat turn (Phase 2 observability)
-            void recordLlmUsage({
-                userId: userId ?? null,
-                sessionId: typeof sessionId === 'string' ? sessionId : null,
-                feature: 'chat',
-                provider: 'groq',
-                model,
-                inputTokens: usage?.inputTokens,
-                outputTokens: usage?.outputTokens,
-                ttftMs: undefined,
-                totalMs,
-            });
-
-            // One structured line per chat turn with the Phase-2 timing fields
-            log.event('chat', 'turn complete', {
-                userId,
-                sessionId,
-                web_fallback: webSearchUsed,
-                llm_model: model,
-                input_tokens: usage?.inputTokens,
-                output_tokens: usage?.outputTokens,
-                auth_ms: authMs,
-                retrieval_ms: retrievalMs,
-                total_ms: totalMs,
-            });
-        },
-    });
-
-    return result.toUIMessageStreamResponse();
+    return stream.result.toUIMessageStreamResponse();
 }
