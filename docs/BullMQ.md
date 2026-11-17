@@ -311,8 +311,8 @@ Use `REDIS_URL=rediss://...` for Upstash’s Redis URL, plus `SUPABASE_SERVICE_R
 
 Verification:
 - `npm run check-types -w apps/web` passes.
-- `npm run lint -w apps/web` still fails on pre-existing warnings in auth/session UI files.
-- `npm run build -w apps/web` still fails on the existing Next 16 `middleware.ts` plus `proxy.ts` conflict.
+- `npm run lint -w apps/web` passes (`--quiet`, so pre-existing warnings in the auth/session UI files do not block).
+- `npm run build -w apps/web` passes: Next 16 picks up `proxy.ts` as its middleware, so no `middleware.ts` is needed alongside it.
 
 ## Bug Fix:
 

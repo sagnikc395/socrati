@@ -140,6 +140,109 @@ npm run start --workspace=web    # web server
 npm run worker --workspace=web   # worker (run alongside)
 ```
 
+`next.config.ts` calls `loadEnvFiles()`, so a self-hosted `next start` reads the
+repo-root `.env` exactly like `npm run dev` does. Variables that are already set
+in the process environment (Vercel, Docker, CI) take precedence.
+
+## Deployment
+
+Two long-running processes plus two managed services:
+
+| Piece | Where | Why there |
+| --- | --- | --- |
+| Next.js app | Vercel | stateless request handling |
+| BullMQ worker | any always-on container host (Fly.io, Railway, Render, a VM) | consumes Redis queues; serverless functions cannot stay alive for it |
+| Postgres, Auth, Storage | Supabase | `supabase/migrations` is the schema |
+| Redis | Upstash or any Redis with a `rediss://` URL | BullMQ queues + chat rate limiting |
+
+### 1. Supabase project
+
+Create the project, then push the migrations against it:
+
+```bash
+npx supabase link --project-ref <ref>
+npx supabase db push
+```
+
+Under **Authentication → URL Configuration** set:
+
+- **Site URL**: `https://<your-domain>`
+- **Redirect URLs**: `https://<your-domain>/auth/callback`
+
+Both are required. `/auth/callback` sends unlisted redirect targets back to the
+Site URL, and a missing entry produces `no valid flow state found` after Google
+sign-in. Keep `http://localhost:3000/auth/callback` in the list for local work.
+
+For Google sign-in, enable **Authentication → Providers → Google** and add
+`https://<ref>.supabase.co/auth/v1/callback` as an authorized redirect URI in
+the Google Cloud console. `/auth` also supports email + password signup, whose
+confirmation link points at `/auth/callback`.
+
+Signups are restricted to the domains in `apps/web/lib/supabase/domains.ts`
+(`umass.edu`); OAuth accounts from other domains are signed out and sent to
+`/auth/restricted`.
+
+### 2. Vercel
+
+Import the repo, set **Root Directory** to `apps/web`, and add these environment
+variables for Production (and Preview, if you want previews to work):
+
+```text
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY
+NEXT_PUBLIC_SITE_URL       # https://<your-domain> — without it OAuth returns to localhost:3000
+REDIS_URL                  # rediss://… (BullMQ URL, not the Upstash REST pair)
+GEMINI_API_KEY
+GROQ_API_KEY
+TAVILY_API_KEY
+```
+
+`NEXT_PUBLIC_SITE_URL` is read at request time by `/auth/callback` to build the
+post-login redirect. Leave it unset and every sign-in lands on
+`http://localhost:3000`.
+
+### 3. Worker
+
+The repo root has a `Dockerfile` for the worker:
+
+```bash
+docker build -t socrati-worker .
+docker run --env-file .env socrati-worker
+```
+
+Any host that can run a container works. The worker needs:
+
+```text
+NEXT_PUBLIC_SUPABASE_URL      SUPABASE_SERVICE_ROLE_KEY
+DATABASE_URL                  REDIS_URL
+GEMINI_API_KEY                GROQ_API_KEY
+TAVILY_API_KEY
+```
+
+It writes chunks through Drizzle (`DATABASE_URL`, Supabase pooler port 6543) and
+reads/deletes audio in the private voice bucket through the service-role key. Do
+not scale it to zero: an idle worker is what makes uploads reach `ready`.
+
+### 4. Verify the deployment
+
+1. `https://<your-domain>` redirects to `/auth`.
+2. Create an account with a `@umass.edu` address; the confirmation link returns
+to `/auth/callback` and lands on `/session/new`.
+3. Sign out, sign back in with email + password, then once with Google.
+4. Upload a PDF and watch it reach `ready` — if it stays `pending`, the worker is
+not running or cannot reach Redis.
+5. Send a chat message; a 429 means Redis rate limiting is working, a 500 with
+`DATABASE_URL is missing` means the worker's env is incomplete.
+
+### GitHub Actions deploy
+
+The workflow deploys through Vercel on push to `main`. Besides the Vercel
+token/org/project IDs it needs the repository secrets `NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SITE_URL`,
+`SUPABASE_SERVICE_ROLE_KEY`, `REDIS_URL`, `GEMINI_API_KEY`, `GROQ_API_KEY`, and
+`TAVILY_API_KEY`. The worker is not deployed by this workflow — release it to its
+container host separately when worker code changes.
+
 ## Code quality
 
 ```bash

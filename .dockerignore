@@ -1,0 +1,14 @@
+node_modules
+**/node_modules
+.next
+**/.next
+.turbo
+**/.turbo
+.git
+.github
+.env
+.env.*
+!.env.example
+eval/last-run.json
+*.log
+.DS_Store
